@@ -9,14 +9,15 @@
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #F7F5F0;             /* สีเบจอ่อนละมุน สบายตาสไตล์ Minimal Warm Cream */
-      --card-bg: #FFFFFF;
-      --border: #E8E5DF;         /* ขอบสีเบจเทาเนียนตา */
-      --text-main: #2D3748;
-      --text-muted: #718096;
+      /* โทนสีกระดาษถนอมสายตาแบบ LyX / Solarized Light */
+      --bg: #FDF6E3;             /* สีกระดาษเบจอ่อนนุ่มนวลแบบ LyX Canvas */
+      --card-bg: #FCFBF7;        /* สีกระดาษการ์ดขาวนวล ไม่ตัดกับพื้นหลังจนเคืองตา */
+      --border: #E8DFCE;         /* เส้นขอบสีฝุ่นกระดาษ นวลตา */
+      --text-main: #3C4242;      /* ตัวอักษรสีเทาเข้มผสมหมึกพิมพ์ ไม่ดำเข้มบาดตา */
+      --text-muted: #7E8585;     /* สีเทากลางอ่านง่าย */
       --up-color: #2E7D32;       /* สีเขียว สำหรับราคาขึ้น */
-      --down-color: #D32F2F;     /* สีแดง สำหรับราคาลง */
-      --accent: #EFECE6;
+      --down-color: #C62828;     /* สีแดง สำหรับราคาลง */
+      --accent: #EEE8D5;         /* สีแถบไฮไลต์กระดาษ */
       --dot-green: #38A169;
       --dot-red: #E53E3E;
     }
@@ -112,8 +113,8 @@
     }
 
     .toggle-advance.active {
-      background: #EBE7DF;
-      border-color: #CBD5E0;
+      background: var(--accent);
+      border-color: #D6CDB8;
       color: var(--text-main);
       font-weight: 600;
     }
@@ -199,7 +200,7 @@
       align-items: center;
       justify-content: center;
       gap: 18px;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+      box-shadow: 0 4px 12px rgba(60, 66, 66, 0.03);
       transition: transform 0.2s ease;
     }
 
@@ -272,7 +273,7 @@
       grid-template-columns: 1fr 1fr;
       gap: 10px;
       margin-bottom: 14px;
-      background: #FAF8F5;
+      background: #F8F3E6;
       padding: 12px;
       border-radius: 12px;
       border: 1px solid var(--border);
@@ -290,7 +291,7 @@
     }
 
     .mini-input-box input {
-      border: 1px solid #CBD5E0;
+      border: 1px solid #D6CDB8;
       background: #FFFFFF;
       border-radius: 6px;
       padding: 4px 8px;
@@ -314,10 +315,10 @@
 
     .formula-code {
       font-family: monospace;
-      background: #F2EFE9;
+      background: #EEE8D5;
       padding: 2px 6px;
       border-radius: 4px;
-      color: #334155;
+      color: #3C4242;
     }
 
     @keyframes fadeIn {
