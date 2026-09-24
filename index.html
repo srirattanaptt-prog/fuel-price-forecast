@@ -9,14 +9,14 @@
   <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #F8F9FA;
+      --bg: #F7F5F0;             /* สีเบจอ่อนละมุน สบายตาสไตล์ Minimal Warm Cream */
       --card-bg: #FFFFFF;
-      --border: #EAECEF;
+      --border: #E8E5DF;         /* ขอบสีเบจเทาเนียนตา */
       --text-main: #2D3748;
       --text-muted: #718096;
       --up-color: #2E7D32;       /* สีเขียว สำหรับราคาขึ้น */
       --down-color: #D32F2F;     /* สีแดง สำหรับราคาลง */
-      --accent: #E2E8F0;
+      --accent: #EFECE6;
       --dot-green: #38A169;
       --dot-red: #E53E3E;
     }
@@ -112,7 +112,7 @@
     }
 
     .toggle-advance.active {
-      background: #EDF2F7;
+      background: #EBE7DF;
       border-color: #CBD5E0;
       color: var(--text-main);
       font-weight: 600;
@@ -272,7 +272,7 @@
       grid-template-columns: 1fr 1fr;
       gap: 10px;
       margin-bottom: 14px;
-      background: #F8F9FA;
+      background: #FAF8F5;
       padding: 12px;
       border-radius: 12px;
       border: 1px solid var(--border);
@@ -314,7 +314,7 @@
 
     .formula-code {
       font-family: monospace;
-      background: #F1F5F9;
+      background: #F2EFE9;
       padding: 2px 6px;
       border-radius: 4px;
       color: #334155;
@@ -421,11 +421,11 @@
     const STATE = {
       diesel: {
         currentMargin: 0.0000,
-        targetMargin: 2.0014, // เกณฑ์เป้าหมายดีเซลดึงจากค่าเมื่อวาน
+        targetMargin: 2.0014,
       },
       g95: {
         currentMargin: 0.0000,
-        targetMargin: 3.3506, // เกณฑ์เป้าหมาย G95 ดึงจากค่าเมื่อวาน
+        targetMargin: 3.3506,
       },
       fxRate: 0.0000,
       vatFactor: 1.07 / 158.9873,
@@ -521,7 +521,6 @@
           const dMargin = parseFloat(data.dieselMargin) || 0;
           const gMargin = parseFloat(data.g95Margin) || 0;
 
-          // ตรวจสอบค่าของเมื่อวานจากไฟล์ JSON (หากมีฟิลด์ yesterdayDieselMargin)
           const yDiesel = parseFloat(data.yesterdayDieselMargin) || parseFloat(localStorage.getItem("yesterday_diesel_margin")) || dMargin;
           const yG95 = parseFloat(data.yesterdayG95Margin) || parseFloat(localStorage.getItem("yesterday_g95_margin")) || gMargin;
 
@@ -553,7 +552,6 @@
       STATE.diesel.currentMargin = dieselToday;
       STATE.g95.currentMargin = g95Today;
 
-      // เกณฑ์เป้าหมาย = ค่าการตลาดของเมื่อวาน
       const targetD = dieselYesterday || dieselToday;
       const targetG = g95Yesterday || g95Today;
 
@@ -565,7 +563,6 @@
       inputTargetDiesel.value = targetD.toFixed(4);
       inputTargetG95.value = targetG.toFixed(4);
 
-      // บันทึกเก็บไว้เป็นประวัติวันก่อนหน้า
       localStorage.setItem("cached_diesel_margin", dieselToday);
       localStorage.setItem("cached_g95_margin", g95Today);
       localStorage.setItem("yesterday_diesel_margin", targetD);
@@ -596,7 +593,7 @@
         return;
       }
 
-      // ต้นทุน MOPS ตรง
+      // ต้นทุน MOPS
       const costDiesel = dMopsDiesel * factor;
       const costG95 = dMopsG95 * (factor * 0.85);
 
@@ -604,7 +601,7 @@
       const marginGapDiesel = (STATE.diesel.currentMargin > 0) ? (STATE.diesel.targetMargin - STATE.diesel.currentMargin) : 0;
       const marginGapG95 = (STATE.g95.currentMargin > 0) ? (STATE.g95.targetMargin - STATE.g95.currentMargin) : 0;
 
-      // ผลลัพธ์สุทธิ: ต้นทุน MOPS + ส่วนชดเชยมาร์จิ้นเทียบเมื่อวาน
+      // รวมผลลัพธ์สุทธิ
       const priceAdjDiesel = costDiesel + marginGapDiesel;
       const priceAdjG95 = costG95 + marginGapG95;
 
