@@ -332,11 +332,11 @@
     <!-- Top Bar: Status Dots & Advance Button -->
     <div class="top-bar">
       <div class="sync-status-group">
-        <button class="status-btn" id="btnSyncEppo" title="คลิกเพื่อโหลดข้อมูล EPPO ใหม่อีกครั้ง (Manual Refresh)">
+        <button class="status-btn" id="btnSyncEppo" title="คลิกเพื่อโหลดข้อมูล EPPO ใหม่อีกครั้ง">
           <span class="dot offline" id="dotEppo"></span>
           <span>EPPO</span>
         </button>
-        <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อโหลดข้อมูลอัตราแลกเปลี่ยนใหม่">
+        <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อโหลดอัตราแลกเปลี่ยนใหม่">
           <span class="dot offline" id="dotFx"></span>
           <span>Exchange</span>
         </button>
@@ -475,59 +475,90 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // ฟังก์ชัน Manual Refresh โหลดข้อมูลจาก data.json
-    async function syncLatestEppoData() {
+    // 1. ดึงอัตราแลกเปลี่ยนสดจาก Browser (ไม่ติด CORS ไฟเขียวทันที)
+    async function syncExchangeRate() {
       try {
-        // ใช้ timestamp ป้องกัน Browser Cache ไฟล์เดิม
-        const res = await fetch("data.json?t=" + new Date().getTime());
-        
+        const res = await fetch("https://open.er-api.com/v6/latest/SGD");
         if (res.ok) {
           const data = await res.json();
-          
-          const dMargin = Number(data.dieselMargin) || 0;
-          const gMargin = Number(data.g95Margin) || 0;
-          const fx = Number(data.fxRate) || 0;
-
-          // ตรวจสอบว่ามีข้อมูลจริงที่ไม่ใช่ 0
-          if (dMargin > 0 && gMargin > 0) {
-            STATE.diesel.currentMargin = dMargin;
-            STATE.g95.currentMargin = gMargin;
-            inputMarginDiesel.value = dMargin.toFixed(4);
-            inputMarginG95.value = gMargin.toFixed(4);
-
-            STATE.syncEppo = true;
-            dotEppo.classList.remove("offline"); // สีเขียว
-          } else {
-            // หากดึงได้แต่ตัวเลขเป็น 0 ให้ขึ้นจุดสีแดง
-            STATE.syncEppo = false;
-            dotEppo.classList.add("offline"); // สีแดง
-          }
-
-          if (fx > 0) {
-            STATE.fxRate = fx;
+          if (data && data.rates && data.rates.THB) {
+            STATE.fxRate = parseFloat(data.rates.THB);
             STATE.syncFx = true;
-            dotFx.classList.remove("offline"); // สีเขียว
-          } else {
-            STATE.syncFx = false;
-            dotFx.classList.add("offline"); // สีแดง
+            dotFx.classList.remove("offline");
+            calculate();
+            return;
           }
-
-          calculate();
-          return;
         }
       } catch (e) {
-        console.log("ไม่พบไฟล์ข้อมูล หรือโหลดไม่สำเร็จ");
+        console.warn("Live FX API error:", e);
       }
 
-      // กรณีโหลดไม่สำเร็จ (404 หรือต่อเน็ตไม่ได้) ให้เป็นจุดสีแดง
-      STATE.syncEppo = false;
+      // ดึงสำรองจาก data.json
+      try {
+        const resJson = await fetch("data.json?t=" + Date.now());
+        if (resJson.ok) {
+          const jData = await resJson.json();
+          if (jData && Number(jData.fxRate) > 0) {
+            STATE.fxRate = parseFloat(jData.fxRate);
+            STATE.syncFx = true;
+            dotFx.classList.remove("offline");
+            calculate();
+            return;
+          }
+        }
+      } catch (err) {}
+
       STATE.syncFx = false;
-      dotEppo.classList.add("offline");
       dotFx.classList.add("offline");
+    }
+
+    // 2. ดึงค่าการตลาด EPPO (data.json -> LocalStorage)
+    async function syncEppoData() {
+      try {
+        const res = await fetch("data.json?t=" + Date.now());
+        if (res.ok) {
+          const data = await res.json();
+          const dMargin = parseFloat(data.dieselMargin) || 0;
+          const gMargin = parseFloat(data.g95Margin) || 0;
+
+          if (dMargin > 0 && gMargin > 0) {
+            applyMargins(dMargin, gMargin);
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("data.json not found:", e);
+      }
+
+      // อ่านจากแคชเดิมที่เคยบันทึกไว้ในเบราว์เซอร์
+      const cD = localStorage.getItem("cached_diesel_margin");
+      const cG = localStorage.getItem("cached_g95_margin");
+      if (cD && cG && parseFloat(cD) > 0 && parseFloat(cG) > 0) {
+        applyMargins(parseFloat(cD), parseFloat(cG));
+        return;
+      }
+
+      // หากยังไม่มีข้อมูลเลย ให้คงสถานะสีแดงไว้
+      STATE.syncEppo = false;
+      dotEppo.classList.add("offline");
       calculate();
     }
 
-    // Calculation Function
+    function applyMargins(diesel, g95) {
+      STATE.diesel.currentMargin = diesel;
+      STATE.g95.currentMargin = g95;
+      inputMarginDiesel.value = diesel.toFixed(4);
+      inputMarginG95.value = g95.toFixed(4);
+
+      localStorage.setItem("cached_diesel_margin", diesel);
+      localStorage.setItem("cached_g95_margin", g95);
+
+      STATE.syncEppo = true;
+      dotEppo.classList.remove("offline");
+      calculate();
+    }
+
+    // คำนวณผลลัพธ์
     function calculate() {
       STATE.diesel.currentMargin = parseFloat(inputMarginDiesel.value) || 0;
       STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.0;
@@ -539,7 +570,7 @@
 
       const factor = STATE.fxRate * STATE.vatFactor;
 
-      // หากยังไม่มีข้อมูลค่าการตลาด (0.0000) และ MOPS ยังเป็น 0 ให้แสดง 0.00
+      // หากยังไม่มีข้อมูล (0.0000) และ MOPS เป็น 0 ให้แสดง 0.00 ชัดเจน
       if (STATE.diesel.currentMargin === 0 && STATE.g95.currentMargin === 0 && dMopsDiesel === 0 && dMopsG95 === 0) {
         renderResult(resDiesel, 0);
         renderResult(resG95, 0);
@@ -612,13 +643,28 @@
       advancePanel.classList.toggle("show", STATE.showAdvance);
     });
 
-    // คลิกปุ่ม EPPO หรือ Exchange เพื่อสั่ง Refresh ข้อมูลใหม่ทันที (Manual Refresh)
-    btnSyncEppo.addEventListener("click", syncLatestEppoData);
-    btnSyncFx.addEventListener("click", syncLatestEppoData);
+    // ปุ่มคลิก Manual Reload
+    btnSyncEppo.addEventListener("click", async () => {
+      await syncEppoData();
+      if (!STATE.syncEppo) {
+        const userD = prompt("ไม่พบไฟล์อัตโนมัติจาก สนพ. (EPPO)\nกรุณาระบุ 'ค่าการตลาดดีเซล' ปัจจุบัน (บาท/ลิตร):", "1.6300");
+        if (userD !== null) {
+          const userG = prompt("กรุณาระบุ 'ค่าการตลาด G95' ปัจจุบัน (บาท/ลิตร):", "1.5200");
+          if (userG !== null) {
+            applyMargins(parseFloat(userD) || 1.6300, parseFloat(userG) || 1.5200);
+          }
+        }
+      }
+    });
 
-    // Initial Run on Page Load
+    btnSyncFx.addEventListener("click", () => {
+      syncExchangeRate();
+    });
+
+    // เริ่มต้นระบบเมื่อเปิดหน้าเว็บ
     calculate();
-    syncLatestEppoData();
+    syncExchangeRate();
+    syncEppoData();
   </script>
 </body>
 </html>
