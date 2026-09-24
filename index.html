@@ -267,6 +267,39 @@
       font-size: 14px;
     }
 
+    .advance-controls-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+      background: #F8F9FA;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+    }
+
+    .mini-input-box {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .mini-input-box label {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    .mini-input-box input {
+      border: 1px solid #CBD5E0;
+      background: #FFFFFF;
+      border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-main);
+      outline: none;
+    }
+
     .step-item {
       margin-bottom: 12px;
       padding-bottom: 10px;
@@ -300,11 +333,11 @@
     <div class="top-bar">
       <div class="sync-status-group">
         <button class="status-btn" id="btnSyncEppo" title="คลิกเพื่อสลับทดสอบสถานะ">
-          <span class="dot" id="dotEppo"></span>
+          <span class="dot offline" id="dotEppo"></span>
           <span>EPPO</span>
         </button>
         <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อสลับทดสอบสถานะ">
-          <span class="dot" id="dotFx"></span>
+          <span class="dot offline" id="dotFx"></span>
           <span>Exchange</span>
         </button>
       </div>
@@ -339,7 +372,7 @@
         <div class="logo-container">
           <img class="fuel-logo" src="Diesel.png" alt="ดีเซล Diesel" />
         </div>
-        <div class="result-value" id="resDiesel"></div>
+        <div class="result-value" id="resDiesel">0.00</div>
       </div>
 
       <!-- Gasohol 95 Card -->
@@ -347,36 +380,57 @@
         <div class="logo-container">
           <img class="fuel-logo" src="G95.png" alt="แก๊สโซฮอล์ 95 Gasohol 95" />
         </div>
-        <div class="result-value" id="resG95"></div>
+        <div class="result-value" id="resG95">0.00</div>
       </div>
     </div>
 
-    <!-- Advance Step-by-Step Panel -->
+    <!-- Advance Step-by-Step Panel (Dynamic Inputs) -->
     <div class="advance-panel" id="advancePanel">
+      <div class="advance-title">ตั้งค่าตัวแปรค่าการตลาด (Dynamic Margin Inputs)</div>
+      
+      <div class="advance-controls-grid">
+        <div class="mini-input-box">
+          <label>ค่าการตลาดปัจจุบัน ดีเซล (บาท/ลิตร)</label>
+          <input type="number" id="inputMarginDiesel" step="0.0001" value="0.0000" />
+        </div>
+        <div class="mini-input-box">
+          <label>เกณฑ์เป้าหมาย ดีเซล (บาท/ลิตร)</label>
+          <input type="number" id="inputTargetDiesel" step="0.01" value="2.00" />
+        </div>
+        <div class="mini-input-box">
+          <label>ค่าการตลาดปัจจุบัน G95 (บาท/ลิตร)</label>
+          <input type="number" id="inputMarginG95" step="0.0001" value="0.0000" />
+        </div>
+        <div class="mini-input-box">
+          <label>เกณฑ์เป้าหมาย G95 (บาท/ลิตร)</label>
+          <input type="number" id="inputTargetG95" step="0.01" value="2.00" />
+        </div>
+      </div>
+
       <div class="advance-title">วิธีทำและการแทนค่าสูตรละเอียด</div>
       <div class="step-item" id="advDieselCalc"></div>
       <div class="step-item" id="advG95Calc"></div>
       <div style="font-size: 11px; margin-top: 8px;">
-        * อัตราแลกเปลี่ยน SGD/THB = <span id="advFxVal">27.6134</span> | ปัจจัยแปลงหน่วย: <span class="formula-code">1.07 / 158.9873</span>
+        * อัตราแลกเปลี่ยน SGD/THB = <span id="advFxVal">0.0000</span> | ปัจจัยแปลงหน่วย: <span class="formula-code">1.07 / 158.9873</span>
       </div>
     </div>
   </div>
 
   <script>
-    // Configuration & EPPO Scraped Base Values
+    // Configuration & Initial State (Set to 0.00 to wait for Live Fetch)
     const STATE = {
       diesel: {
-        currentMargin: 2.0014,
-        targetMargin: 1.9971,
+        currentMargin: 0.0000,
+        targetMargin: 2.0000,
       },
       g95: {
-        currentMargin: 3.3506,
-        targetMargin: 3.3550,
+        currentMargin: 0.0000,
+        targetMargin: 2.0000,
       },
-      fxRate: 27.6134,
+      fxRate: 0.0000,
       vatFactor: 1.07 / 158.9873,
-      syncEppo: true,
-      syncFx: true,
+      syncEppo: false,
+      syncFx: false,
       showAdvance: false
     };
 
@@ -395,6 +449,12 @@
     const advG95Calc = document.getElementById("advG95Calc");
     const advFxVal = document.getElementById("advFxVal");
     const liveDateTime = document.getElementById("liveDateTime");
+
+    // Dynamic Advance Inputs
+    const inputMarginDiesel = document.getElementById("inputMarginDiesel");
+    const inputTargetDiesel = document.getElementById("inputTargetDiesel");
+    const inputMarginG95 = document.getElementById("inputMarginG95");
+    const inputTargetG95 = document.getElementById("inputTargetG95");
 
     // Real-time Thai Date & Time Clock
     function updateClock() {
@@ -415,12 +475,58 @@
     updateClock();
     setInterval(updateClock, 1000);
 
+    // Auto-fetch data from data.json (generated by GitHub Actions)
+    async function syncLatestEppoData() {
+      try {
+        const res = await fetch("data.json?t=" + new Date().getTime());
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.syncStatus) {
+            STATE.diesel.currentMargin = Number(data.dieselMargin) || 0;
+            STATE.g95.currentMargin = Number(data.g95Margin) || 0;
+            STATE.fxRate = Number(data.fxRate) || 0;
+
+            inputMarginDiesel.value = STATE.diesel.currentMargin.toFixed(4);
+            inputMarginG95.value = STATE.g95.currentMargin.toFixed(4);
+
+            STATE.syncEppo = true;
+            STATE.syncFx = true;
+            dotEppo.classList.remove("offline");
+            dotFx.classList.remove("offline");
+            
+            calculate();
+            return;
+          }
+        }
+      } catch (e) {
+        console.log("Offline/Manual fallback mode");
+      }
+      
+      // Fallback state if fetch fails (Keep Offline Red Dots)
+      dotEppo.classList.add("offline");
+      dotFx.classList.add("offline");
+      calculate();
+    }
+
     // Calculation Function
     function calculate() {
+      STATE.diesel.currentMargin = parseFloat(inputMarginDiesel.value) || 0;
+      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.0;
+      STATE.g95.currentMargin = parseFloat(inputMarginG95.value) || 0;
+      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 2.0;
+
       const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
       const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
 
       const factor = STATE.fxRate * STATE.vatFactor;
+
+      // ถ้ายังไม่มีข้อมูล หรือ FX เป็น 0 และ MOPS เป็น 0 ให้แสดง 0.00
+      if (STATE.diesel.currentMargin === 0 && STATE.g95.currentMargin === 0 && dMopsDiesel === 0 && dMopsG95 === 0) {
+        renderResult(resDiesel, 0);
+        renderResult(resG95, 0);
+        renderAdvance(0, 0, 0, 0, 0, 0, 0, 0);
+        return;
+      }
 
       const baseDiffDiesel = STATE.diesel.currentMargin - STATE.diesel.targetMargin;
       const costDiesel = dMopsDiesel * factor;
@@ -430,9 +536,6 @@
       const costG95 = dMopsG95 * factor;
       const varG95 = baseDiffG95 - costG95;
 
-      // Price Adjustment Probability:
-      // Variance < 0 -> Margin squeezed -> Upward pressure (+)
-      // Variance > 0 -> Margin expanded -> Downward pressure (-)
       const priceAdjDiesel = -varDiesel;
       const priceAdjG95 = -varG95;
 
@@ -479,6 +582,10 @@
     // Event Listeners
     inputMopsDiesel.addEventListener("input", calculate);
     inputMopsG95.addEventListener("input", calculate);
+    inputMarginDiesel.addEventListener("input", calculate);
+    inputTargetDiesel.addEventListener("input", calculate);
+    inputMarginG95.addEventListener("input", calculate);
+    inputTargetG95.addEventListener("input", calculate);
 
     btnToggleAdvance.addEventListener("click", () => {
       STATE.showAdvance = !STATE.showAdvance;
@@ -496,8 +603,9 @@
       dotFx.classList.toggle("offline", !STATE.syncFx);
     });
 
-    // Run Calculation on startup
+    // Run Startup: Calculate Initial & Auto-fetch Data
     calculate();
+    syncLatestEppoData();
   </script>
 </body>
 </html>
