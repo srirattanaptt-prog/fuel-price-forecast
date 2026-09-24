@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>แนวโน้มราคาน้ำมัน</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #F8F9FA;
+      --card-bg: #FFFFFF;
+      --border: #EAECEF;
+      --text-main: #2D3748;
+      --text-muted: #718096;
+      --up-color: #2E7D32;       /* สีเขียว สำหรับราคาขึ้น */
+      --down-color: #D32F2F;     /* สีแดง สำหรับราคาลง */
+      --accent: #E2E8F0;
+      --dot-green: #38A169;
+      --dot-red: #E53E3E;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: 'Prompt', sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text-main);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding: 24px 16px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    /* Top Bar: Sync Status and Advance Toggle */
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 2px;
+    }
+
+    .sync-status-group {
+      display: flex;
+      gap: 8px;
+    }
+
+    .status-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      user-select: none;
+      transition: all 0.2s ease;
+    }
+
+    .status-btn:hover {
+      border-color: #CBD5E0;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--dot-green);
+      transition: background-color 0.2s ease;
+    }
+
+    .dot.offline {
+      background-color: var(--dot-red);
+    }
+
+    .toggle-advance {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .toggle-advance:hover {
+      background: var(--accent);
+      color: var(--text-main);
+    }
+
+    .toggle-advance.active {
+      background: #EDF2F7;
+      border-color: #CBD5E0;
+      color: var(--text-main);
+      font-weight: 600;
+    }
+
+    /* Platform Header */
+    .platform-header {
+      text-align: center;
+      margin: 4px 0 8px 0;
+    }
+
+    .platform-title {
+      font-size: 24px;
+      font-weight: 700;
+      color: var(--text-main);
+      letter-spacing: -0.3px;
+    }
+
+    .platform-datetime {
+      font-size: 13px;
+      color: var(--text-muted);
+      font-weight: 400;
+      margin-top: 2px;
+    }
+
+    /* Input Grid */
+    .input-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 480px) {
+      .input-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .input-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 10px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .input-box label {
+      font-size: 12px;
+      color: var(--text-muted);
+      font-weight: 400;
+    }
+
+    .input-box input {
+      border: none;
+      outline: none;
+      background: transparent;
+      font-size: 17px;
+      font-weight: 600;
+      color: var(--text-main);
+    }
+
+    /* Cards Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 480px) {
+      .cards-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .fuel-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+      transition: transform 0.2s ease;
+    }
+
+    .fuel-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .logo-container {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .fuel-logo {
+      max-height: 44px;
+      max-width: 140px;
+      object-fit: contain;
+    }
+
+    /* Giant Number Result */
+    .result-value {
+      font-size: 46px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      line-height: 1;
+      letter-spacing: -1px;
+    }
+
+    .result-value.up {
+      color: var(--up-color);
+    }
+
+    .result-value.down {
+      color: var(--down-color);
+    }
+
+    .arrow {
+      font-size: 38px;
+    }
+
+    /* Advance Section */
+    .advance-panel {
+      display: none;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 18px 20px;
+      font-size: 13px;
+      line-height: 1.7;
+      color: var(--text-muted);
+      animation: fadeIn 0.25s ease;
+    }
+
+    .advance-panel.show {
+      display: block;
+    }
+
+    .advance-title {
+      font-weight: 600;
+      color: var(--text-main);
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .step-item {
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px dashed var(--border);
+    }
+
+    .step-item:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: none;
+    }
+
+    .formula-code {
+      font-family: monospace;
+      background: #F1F5F9;
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #334155;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <!-- Top Bar: Status Dots & Advance Button -->
+    <div class="top-bar">
+      <div class="sync-status-group">
+        <button class="status-btn" id="btnSyncEppo" title="คลิกเพื่อสลับทดสอบสถานะ">
+          <span class="dot" id="dotEppo"></span>
+          <span>EPPO</span>
+        </button>
+        <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อสลับทดสอบสถานะ">
+          <span class="dot" id="dotFx"></span>
+          <span>Exchange</span>
+        </button>
+      </div>
+
+      <button class="toggle-advance" id="btnToggleAdvance">
+        <span>Advance</span>
+      </button>
+    </div>
+
+    <!-- Platform Title & Real-time Date/Time -->
+    <div class="platform-header">
+      <h1 class="platform-title">แนวโน้มราคาน้ำมัน</h1>
+      <div class="platform-datetime" id="liveDateTime">กำลังโหลดวันที่และเวลา...</div>
+    </div>
+
+    <!-- Inputs Row (Default 0.00) -->
+    <div class="input-grid">
+      <div class="input-box">
+        <label for="mopsDiesel">ΔMOPS ดีเซล (SGD/BBL)</label>
+        <input type="number" id="mopsDiesel" step="0.01" value="0.00" />
+      </div>
+      <div class="input-box">
+        <label for="mopsG95">ΔMOPS เบนซิน G95 (SGD/BBL)</label>
+        <input type="number" id="mopsG95" step="0.01" value="0.00" />
+      </div>
+    </div>
+
+    <!-- Cards Grid -->
+    <div class="cards-grid">
+      <!-- Diesel Card -->
+      <div class="fuel-card">
+        <div class="logo-container">
+          <img class="fuel-logo" src="Diesel.png" alt="ดีเซล Diesel" />
+        </div>
+        <div class="result-value" id="resDiesel"></div>
+      </div>
+
+      <!-- Gasohol 95 Card -->
+      <div class="fuel-card">
+        <div class="logo-container">
+          <img class="fuel-logo" src="G95.png" alt="แก๊สโซฮอล์ 95 Gasohol 95" />
+        </div>
+        <div class="result-value" id="resG95"></div>
+      </div>
+    </div>
+
+    <!-- Advance Step-by-Step Panel -->
+    <div class="advance-panel" id="advancePanel">
+      <div class="advance-title">วิธีทำและการแทนค่าสูตรละเอียด</div>
+      <div class="step-item" id="advDieselCalc"></div>
+      <div class="step-item" id="advG95Calc"></div>
+      <div style="font-size: 11px; margin-top: 8px;">
+        * อัตราแลกเปลี่ยน SGD/THB = <span id="advFxVal">27.6134</span> | ปัจจัยแปลงหน่วย: <span class="formula-code">1.07 / 158.9873</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Configuration & EPPO Scraped Base Values
+    const STATE = {
+      diesel: {
+        currentMargin: 2.0014,
+        targetMargin: 1.9971,
+      },
+      g95: {
+        currentMargin: 3.3506,
+        targetMargin: 3.3550,
+      },
+      fxRate: 27.6134,
+      vatFactor: 1.07 / 158.9873,
+      syncEppo: true,
+      syncFx: true,
+      showAdvance: false
+    };
+
+    // DOM Elements
+    const inputMopsDiesel = document.getElementById("mopsDiesel");
+    const inputMopsG95 = document.getElementById("mopsG95");
+    const resDiesel = document.getElementById("resDiesel");
+    const resG95 = document.getElementById("resG95");
+    const btnSyncEppo = document.getElementById("btnSyncEppo");
+    const btnSyncFx = document.getElementById("btnSyncFx");
+    const dotEppo = document.getElementById("dotEppo");
+    const dotFx = document.getElementById("dotFx");
+    const btnToggleAdvance = document.getElementById("btnToggleAdvance");
+    const advancePanel = document.getElementById("advancePanel");
+    const advDieselCalc = document.getElementById("advDieselCalc");
+    const advG95Calc = document.getElementById("advG95Calc");
+    const advFxVal = document.getElementById("advFxVal");
+    const liveDateTime = document.getElementById("liveDateTime");
+
+    // Real-time Thai Date & Time Clock
+    function updateClock() {
+      const now = new Date();
+      const thaiMonths = [
+        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+      ];
+      const day = now.getDate();
+      const month = thaiMonths[now.getMonth()];
+      const year = now.getFullYear() + 543;
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+
+      liveDateTime.textContent = `${day} ${month} ${year} เวลา ${hours}:${minutes}:${seconds} น.`;
+    }
+    updateClock();
+    setInterval(updateClock, 1000);
+
+    // Calculation Function
+    function calculate() {
+      const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
+      const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
+
+      const factor = STATE.fxRate * STATE.vatFactor;
+
+      const baseDiffDiesel = STATE.diesel.currentMargin - STATE.diesel.targetMargin;
+      const costDiesel = dMopsDiesel * factor;
+      const varDiesel = baseDiffDiesel - costDiesel;
+
+      const baseDiffG95 = STATE.g95.currentMargin - STATE.g95.targetMargin;
+      const costG95 = dMopsG95 * factor;
+      const varG95 = baseDiffG95 - costG95;
+
+      // Price Adjustment Probability:
+      // Variance < 0 -> Margin squeezed -> Upward pressure (+)
+      // Variance > 0 -> Margin expanded -> Downward pressure (-)
+      const priceAdjDiesel = -varDiesel;
+      const priceAdjG95 = -varG95;
+
+      renderResult(resDiesel, priceAdjDiesel);
+      renderResult(resG95, priceAdjG95);
+
+      renderAdvance(dMopsDiesel, costDiesel, varDiesel, priceAdjDiesel,
+                    dMopsG95, costG95, varG95, priceAdjG95);
+    }
+
+    function renderResult(el, val) {
+      const absVal = Math.abs(val).toFixed(2);
+      if (val > 0.005) {
+        el.className = "result-value up";
+        el.innerHTML = `+${absVal} <span class="arrow">↑</span>`;
+      } else if (val < -0.005) {
+        el.className = "result-value down";
+        el.innerHTML = `-${absVal} <span class="arrow">↓</span>`;
+      } else {
+        el.className = "result-value";
+        el.innerHTML = `0.00`;
+      }
+    }
+
+    function renderAdvance(dMopsD, costD, varD, adjD, dMopsG, costG, varG, adjG) {
+      advDieselCalc.innerHTML = `
+        <strong>ดีเซล:</strong><br/>
+        • ฐานเดิม: ${STATE.diesel.currentMargin.toFixed(4)} - ${STATE.diesel.targetMargin.toFixed(4)} = <strong>${(STATE.diesel.currentMargin - STATE.diesel.targetMargin).toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ต้นทุน MOPS: ${dMopsD.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ส่วนต่างสุทธิ: ${(STATE.diesel.currentMargin - STATE.diesel.targetMargin).toFixed(4)} - (${costD.toFixed(4)}) = <strong>${varD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ทิศทางราคา: <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(2)} บาท/ลิตร</strong>
+      `;
+
+      advG95Calc.innerHTML = `
+        <strong>แก๊สโซฮอล์ 95:</strong><br/>
+        • ฐานเดิม: ${STATE.g95.currentMargin.toFixed(4)} - ${STATE.g95.targetMargin.toFixed(4)} = <strong>${(STATE.g95.currentMargin - STATE.g95.targetMargin).toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ต้นทุน MOPS: ${dMopsG.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ส่วนต่างสุทธิ: ${(STATE.g95.currentMargin - STATE.g95.targetMargin).toFixed(4)} - (${costG.toFixed(4)}) = <strong>${varG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ทิศทางราคา: <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(2)} บาท/ลิตร</strong>
+      `;
+      advFxVal.innerText = STATE.fxRate.toFixed(4);
+    }
+
+    // Event Listeners
+    inputMopsDiesel.addEventListener("input", calculate);
+    inputMopsG95.addEventListener("input", calculate);
+
+    btnToggleAdvance.addEventListener("click", () => {
+      STATE.showAdvance = !STATE.showAdvance;
+      btnToggleAdvance.classList.toggle("active", STATE.showAdvance);
+      advancePanel.classList.toggle("show", STATE.showAdvance);
+    });
+
+    btnSyncEppo.addEventListener("click", () => {
+      STATE.syncEppo = !STATE.syncEppo;
+      dotEppo.classList.toggle("offline", !STATE.syncEppo);
+    });
+
+    btnSyncFx.addEventListener("click", () => {
+      STATE.syncFx = !STATE.syncFx;
+      dotFx.classList.toggle("offline", !STATE.syncFx);
+    });
+
+    // Run Calculation on startup
+    calculate();
+  </script>
+</body>
+</html>
