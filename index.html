@@ -403,7 +403,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย G95 (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetG95" step="0.01" value="2.00" />
+          <input type="number" id="inputTargetG95" step="0.01" value="2.20" />
         </div>
       </div>
 
@@ -417,7 +417,7 @@
   </div>
 
   <script>
-    // Configuration & Initial State
+    // Configuration & Initial State (Target G95 ปรับเป็น 2.20 ตามธรรมชาติผู้ค้า)
     const STATE = {
       diesel: {
         currentMargin: 0.0000,
@@ -425,7 +425,7 @@
       },
       g95: {
         currentMargin: 0.0000,
-        targetMargin: 2.0000,
+        targetMargin: 2.2000,
       },
       fxRate: 0.0000,
       vatFactor: 1.07 / 158.9873,
@@ -558,19 +558,20 @@
       calculate();
     }
 
-    // คำนวณผลลัพธ์
+    // ฟังก์ชันคำนวณตามสูตรใหม่: Master Formula (100% MOPS + Margin Gap)
     function calculate() {
       STATE.diesel.currentMargin = parseFloat(inputMarginDiesel.value) || 0;
-      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.0;
+      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.00;
       STATE.g95.currentMargin = parseFloat(inputMarginG95.value) || 0;
-      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 2.0;
+      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 2.20;
 
       const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
       const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
 
+      // ตัวคูณแปลงหน่วยชุดเดียวกัน 100% (ไม่ใช้ Blend Ratio)
       const factor = STATE.fxRate * STATE.vatFactor;
 
-      // หากยังไม่มีข้อมูล (0.0000) และ MOPS เป็น 0 ให้แสดง 0.00 ชัดเจน
+      // หากยังไม่มีข้อมูลค่าการตลาด (0.0000) และ MOPS เป็น 0 ให้แสดง 0.00 ชัดเจน
       if (STATE.diesel.currentMargin === 0 && STATE.g95.currentMargin === 0 && dMopsDiesel === 0 && dMopsG95 === 0) {
         renderResult(resDiesel, 0);
         renderResult(resG95, 0);
@@ -578,22 +579,23 @@
         return;
       }
 
-      const baseDiffDiesel = STATE.diesel.currentMargin - STATE.diesel.targetMargin;
+      // 1. ผลกระทบต้นทุน MOPS ล้วนๆ (100% MOPS Sensitivity)
       const costDiesel = dMopsDiesel * factor;
-      const varDiesel = baseDiffDiesel - costDiesel;
-
-      const baseDiffG95 = STATE.g95.currentMargin - STATE.g95.targetMargin;
       const costG95 = dMopsG95 * factor;
-      const varG95 = baseDiffG95 - costG95;
 
-      const priceAdjDiesel = -varDiesel;
-      const priceAdjG95 = -varG95;
+      // 2. ส่วนชดเชยค่าการตลาดเทียบเกณฑ์เป้าหมาย (Margin Gap = Target - Current)
+      const marginGapDiesel = (STATE.diesel.currentMargin > 0) ? (STATE.diesel.targetMargin - STATE.diesel.currentMargin) : 0;
+      const marginGapG95 = (STATE.g95.currentMargin > 0) ? (STATE.g95.targetMargin - STATE.g95.currentMargin) : 0;
+
+      // 3. ทิศทางการปรับราคาหน้าสถานีบริการ: Delta Retail = Cost MOPS + Margin Gap
+      const priceAdjDiesel = costDiesel + marginGapDiesel;
+      const priceAdjG95 = costG95 + marginGapG95;
 
       renderResult(resDiesel, priceAdjDiesel);
       renderResult(resG95, priceAdjG95);
 
-      renderAdvance(dMopsDiesel, costDiesel, varDiesel, priceAdjDiesel,
-                    dMopsG95, costG95, varG95, priceAdjG95);
+      renderAdvance(dMopsDiesel, costDiesel, marginGapDiesel, priceAdjDiesel,
+                    dMopsG95, costG95, marginGapG95, priceAdjG95);
     }
 
     function renderResult(el, val) {
@@ -610,20 +612,20 @@
       }
     }
 
-    function renderAdvance(dMopsD, costD, varD, adjD, dMopsG, costG, varG, adjG) {
+    function renderAdvance(dMopsD, costD, gapD, adjD, dMopsG, costG, gapG, adjG) {
       advDieselCalc.innerHTML = `
-        <strong>ดีเซล:</strong><br/>
-        • ฐานเดิม: ${STATE.diesel.currentMargin.toFixed(4)} - ${STATE.diesel.targetMargin.toFixed(4)} = <strong>${(STATE.diesel.currentMargin - STATE.diesel.targetMargin).toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ต้นทุน MOPS: ${dMopsD.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costD.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ส่วนต่างสุทธิ: ${(STATE.diesel.currentMargin - STATE.diesel.targetMargin).toFixed(4)} - (${costD.toFixed(4)}) = <strong>${varD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        <strong>ดีเซล B7:</strong><br/>
+        • ต้นทุน MOPS: ${dMopsD.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costD >= 0 ? '+' : ''}${costD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ส่วนชดเชยมาร์จิ้น: ${STATE.diesel.targetMargin.toFixed(2)} - ${STATE.diesel.currentMargin.toFixed(4)} = <strong>${gapD >= 0 ? '+' : ''}${gapD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ผลลัพธ์สุทธิ: (${costD.toFixed(4)}) + (${gapD.toFixed(4)}) = <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ทิศทางราคา: <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(2)} บาท/ลิตร</strong>
       `;
 
       advG95Calc.innerHTML = `
         <strong>แก๊สโซฮอล์ 95:</strong><br/>
-        • ฐานเดิม: ${STATE.g95.currentMargin.toFixed(4)} - ${STATE.g95.targetMargin.toFixed(4)} = <strong>${(STATE.g95.currentMargin - STATE.g95.targetMargin).toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ต้นทุน MOPS: ${dMopsG.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costG.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ส่วนต่างสุทธิ: ${(STATE.g95.currentMargin - STATE.g95.targetMargin).toFixed(4)} - (${costG.toFixed(4)}) = <strong>${varG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ต้นทุน MOPS: ${dMopsG.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costG >= 0 ? '+' : ''}${costG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ส่วนชดเชยมาร์จิ้น: ${STATE.g95.targetMargin.toFixed(2)} - ${STATE.g95.currentMargin.toFixed(4)} = <strong>${gapG >= 0 ? '+' : ''}${gapG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ผลลัพธ์สุทธิ: (${costG.toFixed(4)}) + (${gapG.toFixed(4)}) = <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ทิศทางราคา: <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(2)} บาท/ลิตร</strong>
       `;
       advFxVal.innerText = STATE.fxRate.toFixed(4);
