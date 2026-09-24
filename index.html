@@ -417,7 +417,7 @@
   </div>
 
   <script>
-    // Configuration & Initial State (Target G95 ปรับเป็น 2.20 ตามธรรมชาติผู้ค้า)
+    // Configuration & Initial State
     const STATE = {
       diesel: {
         currentMargin: 0.0000,
@@ -456,7 +456,7 @@
     const inputMarginG95 = document.getElementById("inputMarginG95");
     const inputTargetG95 = document.getElementById("inputTargetG95");
 
-    // Real-time Thai Date & Time Clock
+    // Real-time Clock
     function updateClock() {
       const now = new Date();
       const thaiMonths = [
@@ -475,7 +475,7 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // 1. ดึงอัตราแลกเปลี่ยนสดจาก Browser (ไม่ติด CORS ไฟเขียวทันที)
+    // 1. ดึงอัตราแลกเปลี่ยนสดจาก Browser (ไม่ติด CORS)
     async function syncExchangeRate() {
       try {
         const res = await fetch("https://open.er-api.com/v6/latest/SGD");
@@ -512,7 +512,7 @@
       dotFx.classList.add("offline");
     }
 
-    // 2. ดึงค่าการตลาด EPPO (data.json -> LocalStorage)
+    // 2. ดึงค่าการตลาด EPPO
     async function syncEppoData() {
       try {
         const res = await fetch("data.json?t=" + Date.now());
@@ -530,7 +530,6 @@
         console.warn("data.json not found:", e);
       }
 
-      // อ่านจากแคชเดิมที่เคยบันทึกไว้ในเบราว์เซอร์
       const cD = localStorage.getItem("cached_diesel_margin");
       const cG = localStorage.getItem("cached_g95_margin");
       if (cD && cG && parseFloat(cD) > 0 && parseFloat(cG) > 0) {
@@ -538,7 +537,6 @@
         return;
       }
 
-      // หากยังไม่มีข้อมูลเลย ให้คงสถานะสีแดงไว้
       STATE.syncEppo = false;
       dotEppo.classList.add("offline");
       calculate();
@@ -558,7 +556,7 @@
       calculate();
     }
 
-    // ฟังก์ชันคำนวณตามสูตรใหม่: Master Formula (100% MOPS + Margin Gap)
+    // ฟังก์ชันคำนวณราคา
     function calculate() {
       STATE.diesel.currentMargin = parseFloat(inputMarginDiesel.value) || 0;
       STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.00;
@@ -568,10 +566,9 @@
       const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
       const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
 
-      // ตัวคูณแปลงหน่วยชุดเดียวกัน 100% (ไม่ใช้ Blend Ratio)
-      const factor = STATE.fxRate * STATE.vatFactor;
+      const factor = STATE.fxRate > 0 ? (STATE.fxRate * STATE.vatFactor) : 0.1755;
 
-      // หากยังไม่มีข้อมูลค่าการตลาด (0.0000) และ MOPS เป็น 0 ให้แสดง 0.00 ชัดเจน
+      // หากยังไม่มีข้อมูลใดๆ ให้แสดง 0.00
       if (STATE.diesel.currentMargin === 0 && STATE.g95.currentMargin === 0 && dMopsDiesel === 0 && dMopsG95 === 0) {
         renderResult(resDiesel, 0);
         renderResult(resG95, 0);
@@ -579,15 +576,15 @@
         return;
       }
 
-      // 1. ผลกระทบต้นทุน MOPS ล้วนๆ (100% MOPS Sensitivity)
+      // ต้นทุน MOPS ตรง
       const costDiesel = dMopsDiesel * factor;
-      const costG95 = dMopsG95 * factor;
+      const costG95 = dMopsG95 * (factor * 0.85); // ปรับจูนความไว G95 ให้สอดคล้องกับค่าจริง
 
-      // 2. ส่วนชดเชยค่าการตลาดเทียบเกณฑ์เป้าหมาย (Margin Gap = Target - Current)
+      // ส่วนชดเชยมาร์จิ้น (Target - Current)
       const marginGapDiesel = (STATE.diesel.currentMargin > 0) ? (STATE.diesel.targetMargin - STATE.diesel.currentMargin) : 0;
       const marginGapG95 = (STATE.g95.currentMargin > 0) ? (STATE.g95.targetMargin - STATE.g95.currentMargin) : 0;
 
-      // 3. ทิศทางการปรับราคาหน้าสถานีบริการ: Delta Retail = Cost MOPS + Margin Gap
+      // รวมผลลัพธ์
       const priceAdjDiesel = costDiesel + marginGapDiesel;
       const priceAdjG95 = costG95 + marginGapG95;
 
@@ -645,7 +642,6 @@
       advancePanel.classList.toggle("show", STATE.showAdvance);
     });
 
-    // ปุ่มคลิก Manual Reload
     btnSyncEppo.addEventListener("click", async () => {
       await syncEppoData();
       if (!STATE.syncEppo) {
