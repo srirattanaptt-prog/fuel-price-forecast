@@ -395,7 +395,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย ดีเซล (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetDiesel" step="0.01" value="2.45" />
+          <input type="number" id="inputTargetDiesel" step="0.0001" value="2.0014" />
         </div>
         <div class="mini-input-box">
           <label>ค่าการตลาดปัจจุบัน G95 (บาท/ลิตร)</label>
@@ -403,7 +403,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย G95 (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetG95" step="0.01" value="3.35" />
+          <input type="number" id="inputTargetG95" step="0.0001" value="3.3506" />
         </div>
       </div>
 
@@ -417,15 +417,15 @@
   </div>
 
   <script>
-    // Configuration & Initial State (เกณฑ์เป้าหมายเริ่มต้น ดีเซล 2.45 และ G95 3.35)
+    // Configuration & Initial State
     const STATE = {
       diesel: {
         currentMargin: 0.0000,
-        targetMargin: 2.4500,
+        targetMargin: 2.0014, // เกณฑ์เป้าหมายดีเซลดึงจากค่าเมื่อวาน
       },
       g95: {
         currentMargin: 0.0000,
-        targetMargin: 3.3500,
+        targetMargin: 3.3506, // เกณฑ์เป้าหมาย G95 ดึงจากค่าเมื่อวาน
       },
       fxRate: 0.0000,
       vatFactor: 1.07 / 158.9873,
@@ -512,7 +512,7 @@
       dotFx.classList.add("offline");
     }
 
-    // 2. ดึงค่าการตลาด EPPO
+    // 2. ดึงค่าการตลาด EPPO และกำหนดให้เกณฑ์เป้าหมายคือค่าของเมื่อวาน
     async function syncEppoData() {
       try {
         const res = await fetch("data.json?t=" + Date.now());
@@ -521,8 +521,12 @@
           const dMargin = parseFloat(data.dieselMargin) || 0;
           const gMargin = parseFloat(data.g95Margin) || 0;
 
+          // ตรวจสอบค่าของเมื่อวานจากไฟล์ JSON (หากมีฟิลด์ yesterdayDieselMargin)
+          const yDiesel = parseFloat(data.yesterdayDieselMargin) || parseFloat(localStorage.getItem("yesterday_diesel_margin")) || dMargin;
+          const yG95 = parseFloat(data.yesterdayG95Margin) || parseFloat(localStorage.getItem("yesterday_g95_margin")) || gMargin;
+
           if (dMargin > 0 && gMargin > 0) {
-            applyMargins(dMargin, gMargin);
+            applyMargins(dMargin, gMargin, yDiesel, yG95);
             return;
           }
         }
@@ -532,8 +536,11 @@
 
       const cD = localStorage.getItem("cached_diesel_margin");
       const cG = localStorage.getItem("cached_g95_margin");
+      const yD = localStorage.getItem("yesterday_diesel_margin") || cD;
+      const yG = localStorage.getItem("yesterday_g95_margin") || cG;
+
       if (cD && cG && parseFloat(cD) > 0 && parseFloat(cG) > 0) {
-        applyMargins(parseFloat(cD), parseFloat(cG));
+        applyMargins(parseFloat(cD), parseFloat(cG), parseFloat(yD), parseFloat(yG));
         return;
       }
 
@@ -542,14 +549,27 @@
       calculate();
     }
 
-    function applyMargins(diesel, g95) {
-      STATE.diesel.currentMargin = diesel;
-      STATE.g95.currentMargin = g95;
-      inputMarginDiesel.value = diesel.toFixed(4);
-      inputMarginG95.value = g95.toFixed(4);
+    function applyMargins(dieselToday, g95Today, dieselYesterday, g95Yesterday) {
+      STATE.diesel.currentMargin = dieselToday;
+      STATE.g95.currentMargin = g95Today;
 
-      localStorage.setItem("cached_diesel_margin", diesel);
-      localStorage.setItem("cached_g95_margin", g95);
+      // เกณฑ์เป้าหมาย = ค่าการตลาดของเมื่อวาน
+      const targetD = dieselYesterday || dieselToday;
+      const targetG = g95Yesterday || g95Today;
+
+      STATE.diesel.targetMargin = targetD;
+      STATE.g95.targetMargin = targetG;
+
+      inputMarginDiesel.value = dieselToday.toFixed(4);
+      inputMarginG95.value = g95Today.toFixed(4);
+      inputTargetDiesel.value = targetD.toFixed(4);
+      inputTargetG95.value = targetG.toFixed(4);
+
+      // บันทึกเก็บไว้เป็นประวัติวันก่อนหน้า
+      localStorage.setItem("cached_diesel_margin", dieselToday);
+      localStorage.setItem("cached_g95_margin", g95Today);
+      localStorage.setItem("yesterday_diesel_margin", targetD);
+      localStorage.setItem("yesterday_g95_margin", targetG);
 
       STATE.syncEppo = true;
       dotEppo.classList.remove("offline");
@@ -559,9 +579,9 @@
     // ฟังก์ชันคำนวณราคา
     function calculate() {
       STATE.diesel.currentMargin = parseFloat(inputMarginDiesel.value) || 0;
-      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.45;
+      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || STATE.diesel.currentMargin;
       STATE.g95.currentMargin = parseFloat(inputMarginG95.value) || 0;
-      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.35;
+      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || STATE.g95.currentMargin;
 
       const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
       const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
@@ -576,15 +596,15 @@
         return;
       }
 
-      // ต้นทุน MOPS
+      // ต้นทุน MOPS ตรง
       const costDiesel = dMopsDiesel * factor;
       const costG95 = dMopsG95 * (factor * 0.85);
 
-      // ส่วนชดเชยมาร์จิ้น (Target - Current)
+      // ส่วนชดเชยมาร์จิ้นวันต่อวัน: ค่าเมื่อวาน (Target) - ค่าวันนี้ (Current)
       const marginGapDiesel = (STATE.diesel.currentMargin > 0) ? (STATE.diesel.targetMargin - STATE.diesel.currentMargin) : 0;
       const marginGapG95 = (STATE.g95.currentMargin > 0) ? (STATE.g95.targetMargin - STATE.g95.currentMargin) : 0;
 
-      // รวมผลลัพธ์สุทธิ
+      // ผลลัพธ์สุทธิ: ต้นทุน MOPS + ส่วนชดเชยมาร์จิ้นเทียบเมื่อวาน
       const priceAdjDiesel = costDiesel + marginGapDiesel;
       const priceAdjG95 = costG95 + marginGapG95;
 
@@ -613,7 +633,7 @@
       advDieselCalc.innerHTML = `
         <strong>ดีเซล B7:</strong><br/>
         • ต้นทุน MOPS: ${dMopsD.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costD >= 0 ? '+' : ''}${costD.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ส่วนชดเชยมาร์จิ้น: ${STATE.diesel.targetMargin.toFixed(2)} - ${STATE.diesel.currentMargin.toFixed(4)} = <strong>${gapD >= 0 ? '+' : ''}${gapD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ส่วนชดเชยมาร์จิ้น (เมื่อวาน - วันนี้): ${STATE.diesel.targetMargin.toFixed(4)} - ${STATE.diesel.currentMargin.toFixed(4)} = <strong>${gapD >= 0 ? '+' : ''}${gapD.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ผลลัพธ์สุทธิ: (${costD.toFixed(4)}) + (${gapD.toFixed(4)}) = <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ทิศทางราคา: <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(2)} บาท/ลิตร</strong>
       `;
@@ -621,7 +641,7 @@
       advG95Calc.innerHTML = `
         <strong>แก๊สโซฮอล์ 95:</strong><br/>
         • ต้นทุน MOPS: ${dMopsG.toFixed(2)} × ${STATE.fxRate.toFixed(4)} × 0.00673 = <strong>${costG >= 0 ? '+' : ''}${costG.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ส่วนชดเชยมาร์จิ้น: ${STATE.g95.targetMargin.toFixed(2)} - ${STATE.g95.currentMargin.toFixed(4)} = <strong>${gapG >= 0 ? '+' : ''}${gapG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ส่วนชดเชยมาร์จิ้น (เมื่อวาน - วันนี้): ${STATE.g95.targetMargin.toFixed(4)} - ${STATE.g95.currentMargin.toFixed(4)} = <strong>${gapG >= 0 ? '+' : ''}${gapG.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ผลลัพธ์สุทธิ: (${costG.toFixed(4)}) + (${gapG.toFixed(4)}) = <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ทิศทางราคา: <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(2)} บาท/ลิตร</strong>
       `;
@@ -649,7 +669,7 @@
         if (userD !== null) {
           const userG = prompt("กรุณาระบุ 'ค่าการตลาด G95' ปัจจุบัน (บาท/ลิตร):", "3.3506");
           if (userG !== null) {
-            applyMargins(parseFloat(userD) || 2.0014, parseFloat(userG) || 3.3506);
+            applyMargins(parseFloat(userD) || 2.0014, parseFloat(userG) || 3.3506, parseFloat(userD) || 2.0014, parseFloat(userG) || 3.3506);
           }
         }
       }
