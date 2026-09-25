@@ -391,20 +391,20 @@
       
       <div class="advance-controls-grid">
         <div class="mini-input-box">
-          <label>ค่าการตลาดปัจจุบัน ดีเซล (บาท/ลิตร)</label>
-          <input type="number" id="inputMarginDiesel" step="0.0001" value="0.0000" />
+          <label>มาร์จิ้นดีเซลเมื่อวาน (บาท/ลิตร)</label>
+          <input type="number" id="inputMarginDiesel" step="0.0001" value="2.0000" />
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย ดีเซล (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetDiesel" step="0.0001" value="2.2500" />
+          <input type="number" id="inputTargetDiesel" step="0.0001" value="1.9100" />
         </div>
         <div class="mini-input-box">
-          <label>ค่าการตลาดปัจจุบัน G95 (บาท/ลิตร)</label>
-          <input type="number" id="inputMarginG95" step="0.0001" value="0.0000" />
+          <label>มาร์จิ้น G95 เมื่อวาน (บาท/ลิตร)</label>
+          <input type="number" id="inputMarginG95" step="0.0001" value="3.3500" />
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย G95 (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetG95" step="0.0001" value="3.7000" />
+          <input type="number" id="inputTargetG95" step="0.0001" value="3.2500" />
         </div>
       </div>
 
@@ -412,28 +412,29 @@
       <div class="step-item" id="advDieselCalc"></div>
       <div class="step-item" id="advG95Calc"></div>
       <div style="font-size: 11px; margin-top: 8px;">
-        * อัตราแลกเปลี่ยน SGD/THB = <span id="advFxVal">0.0000</span> | ปัจจัยแปลงหน่วย: <span class="formula-code">1.07 / 158.9873</span>
+        * อัตราแลกเปลี่ยน SGD/THB = <span id="advFxVal">0.0000</span> (ΔFX: <span id="advDfxVal">0.0000</span>) | ตัวคูณ FX: ดีเซล = 1.10, G95 = 0.80
       </div>
     </div>
   </div>
 
   <script>
-    // Configuration & Initial State (ตามค่าคงที่และสัมประสิทธิ์ที่ถอดรหัสได้)
+    // Configuration & State (The Ultimate Production Model)
     const STATE = {
       diesel: {
-        currentMargin: 0.0000,
-        targetMargin: 2.2500, // ค่าเกณฑ์เป้าหมายดีเซลที่สะท้อนภาษีท้องถิ่นและกันชนหน้าลาน
-        beta: 0.935,          // สัมประสิทธิ์สัดส่วนเนื้อดีเซลฐาน 93.5%
+        yesterdayMargin: 2.0000,
+        targetMargin: 1.9100, // เกณฑ์เป้าหมายที่ดีที่สุดจากการพิสูจน์ (Baseline 1.91)
+        factorMops: 0.165,    // Sensitivity Factor ดีเซล B7
+        factorFx: 1.10        // FX Impact Factor ดีเซล
       },
       g95: {
-        currentMargin: 0.0000,
-        targetMargin: 3.7000, // ค่าเกณฑ์เป้าหมาย G95 ที่สะท้อน Retail Cushion Buffer
-        beta: 0.865,          // สัมประสิทธิ์สัดส่วนเนื้อ G-Base 91 ผสมเอทานอล 10%
+        yesterdayMargin: 3.3500,
+        targetMargin: 3.2500, // เกณฑ์เป้าหมายที่ดีที่สุดจากการพิสูจน์ (Baseline 3.25)
+        factorMops: 0.152,    // Sensitivity Factor G95 (หักเอทานอล 10%)
+        factorFx: 0.80        // FX Impact Factor G95
       },
-      fxRate: 0.0000,
-      vatFactor: 1.07 / 158.9873,
-      litersPerBarrel: 158.9873,
-      vatMultiplier: 1.07,
+      fxRate: 26.1346,
+      prevFxRate: 26.1346,
+      dFx: 0.0000,
       syncEppo: false,
       syncFx: false,
       showAdvance: false
@@ -480,14 +481,20 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // 1. ดึงอัตราแลกเปลี่ยนสดจาก Browser
+    // 1. ดึงอัตราแลกเปลี่ยนสดและคำนวณส่วนต่าง ΔFX
     async function syncExchangeRate() {
       try {
         const res = await fetch("https://open.er-api.com/v6/latest/SGD");
         if (res.ok) {
           const data = await res.json();
           if (data && data.rates && data.rates.THB) {
-            STATE.fxRate = parseFloat(data.rates.THB);
+            const currentFx = parseFloat(data.rates.THB);
+            const cachedFx = parseFloat(localStorage.getItem("cached_prev_fx")) || currentFx;
+            
+            STATE.fxRate = currentFx;
+            STATE.prevFxRate = cachedFx;
+            STATE.dFx = currentFx - cachedFx;
+
             STATE.syncFx = true;
             dotFx.classList.remove("offline");
             calculate();
@@ -498,13 +505,14 @@
         console.warn("Live FX API error:", e);
       }
 
-      // ดึงสำรองจาก data.json
+      // โหลดสำรองจาก data.json
       try {
         const resJson = await fetch("data.json?t=" + Date.now());
         if (resJson.ok) {
           const jData = await resJson.json();
           if (jData && Number(jData.fxRate) > 0) {
             STATE.fxRate = parseFloat(jData.fxRate);
+            STATE.dFx = parseFloat(jData.dFx) || 0.0000;
             STATE.syncFx = true;
             dotFx.classList.remove("offline");
             calculate();
@@ -548,8 +556,8 @@
     }
 
     function applyMargins(diesel, g95) {
-      STATE.diesel.currentMargin = diesel;
-      STATE.g95.currentMargin = g95;
+      STATE.diesel.yesterdayMargin = diesel;
+      STATE.g95.yesterdayMargin = g95;
       inputMarginDiesel.value = diesel.toFixed(4);
       inputMarginG95.value = g95.toFixed(4);
 
@@ -561,85 +569,82 @@
       calculate();
     }
 
-    // ฟังก์ชันคำนวณราคาด้วยสมการหลักทั้ง 3 สมการ
+    // ฟังก์ชันคำนวณสมการพยากรณ์ที่ดีที่สุด (The Ultimate Formula)
+    // Status = (Target - YesterdayMargin) - [ (ΔMOPS * FactorMOPS) + (ΔFX * FactorFX) ]
     function calculate() {
-      STATE.diesel.currentMargin = parseFloat(inputMarginDiesel.value) || 0;
-      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.2500;
-      STATE.g95.currentMargin = parseFloat(inputMarginG95.value) || 0;
-      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.7000;
+      STATE.diesel.yesterdayMargin = parseFloat(inputMarginDiesel.value) || 2.0000;
+      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 1.9100;
+      STATE.g95.yesterdayMargin = parseFloat(inputMarginG95.value) || 3.3500;
+      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.2500;
 
       const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
       const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
 
-      const currentFx = STATE.fxRate > 0 ? STATE.fxRate : 26.1346;
+      // 1. คำนวณต้นทุนรวม ดีเซล B7
+      const gapDiesel = STATE.diesel.targetMargin - STATE.diesel.yesterdayMargin;
+      const costMopsDiesel = dMopsDiesel * STATE.diesel.factorMops;
+      const costFxDiesel = STATE.dFx * STATE.diesel.factorFx;
+      const totalCostDiesel = costMopsDiesel + costFxDiesel;
+      const statusDiesel = gapDiesel - totalCostDiesel;
 
-      // สมการที่ 1: Factor = ( (FX * (1 + VAT)) / LitersPerBarrel ) * beta
-      const baseConversion = (currentFx * STATE.vatMultiplier) / STATE.litersPerBarrel;
-      const factorDiesel = baseConversion * STATE.diesel.beta; // ดีเซล: baseConversion * 0.935
-      const factorG95 = baseConversion * STATE.g95.beta;       // G95: baseConversion * 0.865
+      // 2. คำนวณต้นทุนรวม แก๊สโซฮอล์ 95
+      const gapG95 = STATE.g95.targetMargin - STATE.g95.yesterdayMargin;
+      const costMopsG95 = dMopsG95 * STATE.g95.factorMops;
+      const costFxG95 = STATE.dFx * STATE.g95.factorFx;
+      const totalCostG95 = costMopsG95 + costFxG95;
+      const statusG95 = gapG95 - totalCostG95;
 
-      // หากยังไม่มีข้อมูลใดๆ ให้แสดง 0.00
-      if (STATE.diesel.currentMargin === 0 && STATE.g95.currentMargin === 0 && dMopsDiesel === 0 && dMopsG95 === 0) {
-        renderResult(resDiesel, 0);
-        renderResult(resG95, 0);
-        renderAdvance(0, 0, 0, 0, 0, 0, 0, 0, factorDiesel, factorG95);
-        return;
-      }
+      // แสดงผลบนการ์ดผลลัพธ์
+      renderStatus(resDiesel, statusDiesel);
+      renderStatus(resG95, statusG95);
 
-      // สมการที่ 2: ΔCost_MOPS = ΔMOPS * Factor
-      const costDiesel = dMopsDiesel * factorDiesel;
-      const costG95 = dMopsG95 * factorG95;
-
-      // ส่วนชดเชยมาร์จิ้น: ΔMargin Gap = Target Margin - Current Margin
-      const marginGapDiesel = (STATE.diesel.currentMargin > 0) ? (STATE.diesel.targetMargin - STATE.diesel.currentMargin) : 0;
-      const marginGapG95 = (STATE.g95.currentMargin > 0) ? (STATE.g95.targetMargin - STATE.g95.currentMargin) : 0;
-
-      // สมการที่ 3: สมการผลรวม ΔRetail Price = ΔCost_MOPS + ΔMargin Gap
-      const priceAdjDiesel = costDiesel + marginGapDiesel;
-      const priceAdjG95 = costG95 + marginGapG95;
-
-      renderResult(resDiesel, priceAdjDiesel);
-      renderResult(resG95, priceAdjG95);
-
-      renderAdvance(dMopsDiesel, costDiesel, marginGapDiesel, priceAdjDiesel,
-                    dMopsG95, costG95, marginGapG95, priceAdjG95,
-                    factorDiesel, factorG95);
+      // แสดงรายละเอียดวิธีทำในกรอบ Advance
+      renderAdvance(dMopsDiesel, gapDiesel, costMopsDiesel, costFxDiesel, statusDiesel,
+                    dMopsG95, gapG95, costMopsG95, costFxG95, statusG95);
     }
 
-    function renderResult(el, val) {
+    // การแสดงผล:
+    // บวก (+) = เกินเกณฑ์ (มีแรงกดดันราคาลง / กองทุนเก็บเข้า -> แดง ↓)
+    // ลบ (-) = ต่ำเกณฑ์ (ผู้ค้าแบกต้นทุน / มีแรงดันราคาขึ้น -> เขียว ↑)
+    function renderStatus(el, val) {
       const absVal = Math.abs(val).toFixed(2);
       if (val > 0.005) {
-        el.className = "result-value up";
-        el.innerHTML = `+${absVal} <span class="arrow">↑</span>`;
-      } else if (val < -0.005) {
         el.className = "result-value down";
         el.innerHTML = `-${absVal} <span class="arrow">↓</span>`;
+      } else if (val < -0.005) {
+        el.className = "result-value up";
+        el.innerHTML = `+${absVal} <span class="arrow">↑</span>`;
       } else {
         el.className = "result-value";
         el.innerHTML = `0.00`;
       }
     }
 
-    function renderAdvance(dMopsD, costD, gapD, adjD, dMopsG, costG, gapG, adjG, factorD, factorG) {
-      const currentFx = STATE.fxRate > 0 ? STATE.fxRate : 26.1346;
+    function renderAdvance(dMopsD, gapD, costMopsD, costFxD, statusD, dMopsG, gapG, costMopsG, costFxG, statusG) {
+      const labelD = statusD >= 0 ? "เกินเกณฑ์" : "ต่ำเกณฑ์";
+      const labelG = statusG >= 0 ? "เกินเกณฑ์" : "ต่ำเกณฑ์";
+
       advDieselCalc.innerHTML = `
-        <strong>ดีเซล B7 (β = ${STATE.diesel.beta}):</strong><br/>
-        • Factor: ((${currentFx.toFixed(4)} × 1.07) / 158.9873) × ${STATE.diesel.beta} = <strong>${factorD.toFixed(4)}</strong><br/>
-        • ΔCost_MOPS: ${dMopsD.toFixed(2)} × ${factorD.toFixed(4)} = <strong>${costD >= 0 ? '+' : ''}${costD.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ΔMargin Gap: ${STATE.diesel.targetMargin.toFixed(4)} - ${STATE.diesel.currentMargin.toFixed(4)} = <strong>${gapD >= 0 ? '+' : ''}${gapD.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ผลรวม ΔRetail Price: (${costD.toFixed(4)}) + (${gapD.toFixed(4)}) = <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ทิศทางราคา: <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(2)} บาท/ลิตร</strong>
+        <strong>ดีเซล B7 (Target ${STATE.diesel.targetMargin.toFixed(2)}):</strong><br/>
+        • ส่วนต่างมาร์จิ้น: ${STATE.diesel.targetMargin.toFixed(2)} - ${STATE.diesel.yesterdayMargin.toFixed(4)} = <strong>${gapD >= 0 ? '+' : ''}${gapD.toFixed(4)}</strong><br/>
+        • ต้นทุนรวม (MOPS+FX): (${dMopsD.toFixed(2)} × 0.165) + (${STATE.dFx.toFixed(4)} × 1.10) = <strong>${(costMopsD + costFxD) >= 0 ? '+' : ''}${(costMopsD + costFxD).toFixed(4)}</strong><br/>
+        • ผลลัพธ์สถานะ: (${gapD.toFixed(4)}) - (${(costMopsD + costFxD).toFixed(4)}) = <strong>${statusD >= 0 ? '+' : ''}${statusD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • รายงาน: <strong>${labelD} ~${Math.abs(statusD).toFixed(2)} บาท</strong>
       `;
 
       advG95Calc.innerHTML = `
-        <strong>แก๊สโซฮอล์ 95 (β = ${STATE.g95.beta}):</strong><br/>
-        • Factor: ((${currentFx.toFixed(4)} × 1.07) / 158.9873) × ${STATE.g95.beta} = <strong>${factorG.toFixed(4)}</strong><br/>
-        • ΔCost_MOPS: ${dMopsG.toFixed(2)} × ${factorG.toFixed(4)} = <strong>${costG >= 0 ? '+' : ''}${costG.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ΔMargin Gap: ${STATE.g95.targetMargin.toFixed(4)} - ${STATE.g95.currentMargin.toFixed(4)} = <strong>${gapG >= 0 ? '+' : ''}${gapG.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ผลรวม ΔRetail Price: (${costG.toFixed(4)}) + (${gapG.toFixed(4)}) = <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ทิศทางราคา: <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(2)} บาท/ลิตร</strong>
+        <strong>แก๊สโซฮอล์ 95 (Target ${STATE.g95.targetMargin.toFixed(2)}):</strong><br/>
+        • ส่วนต่างมาร์จิ้น: ${STATE.g95.targetMargin.toFixed(2)} - ${STATE.g95.yesterdayMargin.toFixed(4)} = <strong>${gapG >= 0 ? '+' : ''}${gapG.toFixed(4)}</strong><br/>
+        • ต้นทุนรวม (MOPS+FX): (${dMopsG.toFixed(2)} × 0.152) + (${STATE.dFx.toFixed(4)} × 0.80) = <strong>${(costMopsG + costFxG) >= 0 ? '+' : ''}${(costMopsG + costFxG).toFixed(4)}</strong><br/>
+        • ผลลัพธ์สถานะ: (${gapG.toFixed(4)}) - (${(costMopsG + costFxG).toFixed(4)}) = <strong>${statusG >= 0 ? '+' : ''}${statusG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • รายงาน: <strong>${labelG} ~${Math.abs(statusG).toFixed(2)} บาท</strong>
       `;
-      advFxVal.innerText = currentFx.toFixed(4);
+
+      advFxVal.innerText = STATE.fxRate.toFixed(4);
+      const advDfxSpan = document.getElementById("advDfxVal");
+      if (advDfxSpan) {
+        advDfxSpan.innerText = (STATE.dFx >= 0 ? "+" : "") + STATE.dFx.toFixed(4);
+      }
     }
 
     // Event Listeners
@@ -659,11 +664,11 @@
     btnSyncEppo.addEventListener("click", async () => {
       await syncEppoData();
       if (!STATE.syncEppo) {
-        const userD = prompt("ไม่พบไฟล์อัตโนมัติจาก สนพ. (EPPO)\nกรุณาระบุ 'ค่าการตลาดดีเซล' ปัจจุบัน (บาท/ลิตร):", "2.0014");
+        const userD = prompt("กรุณาระบุ 'มาร์จิ้นดีเซลเมื่อวาน' (บาท/ลิตร):", "2.0000");
         if (userD !== null) {
-          const userG = prompt("กรุณาระบุ 'ค่าการตลาด G95' ปัจจุบัน (บาท/ลิตร):", "3.3506");
+          const userG = prompt("กรุณาระบุ 'มาร์จิ้น G95 เมื่อวาน' (บาท/ลิตร):", "3.3500");
           if (userG !== null) {
-            applyMargins(parseFloat(userD) || 2.0014, parseFloat(userG) || 3.3506);
+            applyMargins(parseFloat(userD) || 2.0000, parseFloat(userG) || 3.3500);
           }
         }
       }
@@ -673,7 +678,7 @@
       syncExchangeRate();
     });
 
-    // เริ่มต้นระบบเมื่อเปิดหน้าเว็บ
+    // เริ่มต้นระบบ
     calculate();
     syncExchangeRate();
     syncEppoData();
