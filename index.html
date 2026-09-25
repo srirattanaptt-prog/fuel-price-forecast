@@ -450,7 +450,7 @@
       fxRate: 26.1346,
       prevFxRate: 26.1346,
       dFx: 0.0000,
-      usdSgdRate: 1.3200, // สำหรับแปลงหน่วย Futures
+      usdSgdRate: 1.3200, 
       syncEppo: false,
       syncFx: false,
       showAdvance: false
@@ -498,11 +498,11 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // ระบบ Proxy ดึงข้อมูล Futures ทดแทน MOPS (แก้ปัญหา วันหยุด/Timezone)
+    // ระบบ Proxy อัจฉริยะ (Smart Intraday Fetching)
     async function fetchProxyMops(fuelType) {
       const btn = fuelType === 'diesel' ? btnProxyDiesel : btnProxyG95;
       const infoDiv = fuelType === 'diesel' ? infoProxyDiesel : infoProxyG95;
-      const ticker = fuelType === 'diesel' ? 'HO=F' : 'RB=F'; // Heating Oil หรือ RBOB
+      const ticker = fuelType === 'diesel' ? 'HO=F' : 'RB=F'; 
       const input = fuelType === 'diesel' ? inputMopsDiesel : inputMopsG95;
       
       btn.disabled = true;
@@ -510,7 +510,7 @@
       infoDiv.innerText = "กำลังเชื่อมต่อตลาด Futures...";
 
       try {
-        // 1. ดึงอัตราแลกเปลี่ยน USD/SGD สดๆ ก่อน
+        // 1. ดึงอัตราแลกเปลี่ยน USD/SGD สดๆ
         const usdSgdUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGD=X?interval=1d&range=1d";
         const proxyUsdSgdUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(usdSgdUrl);
         const resUsd = await fetch(proxyUsdSgdUrl);
@@ -520,8 +520,7 @@
             if (rate > 0) STATE.usdSgdRate = rate;
         }
 
-        // 2. ดึงกราฟแท่ง 1 ชั่วโมง ย้อนหลัง 5 วัน เพื่อหาแท่ง 15:30 (เวลาไทย) ของ 2 วันล่าสุดที่ตลาดเปิด
-        // 15:30 ไทย = 08:30 UTC. แท่งกราฟรายชั่วโมงของ Yahoo มักจะประทับเวลา 08:00 UTC
+        // 2. ดึงกราฟแท่ง 1 ชั่วโมง ย้อนหลัง 5 วัน
         const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1h&range=5d`;
         const proxyChartUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(chartUrl);
         
@@ -532,43 +531,59 @@
         const timestamps = data?.chart?.result?.[0]?.timestamp;
         const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
 
-        if (!timestamps || !closes) throw new Error("ไม่มีข้อมูลการซื้อขายในช่วง 5 วันที่ผ่านมา");
+        if (!timestamps || !closes || timestamps.length === 0) {
+            throw new Error("ไม่มีข้อมูลการซื้อขายในช่วง 5 วันที่ผ่านมา");
+        }
 
-        // กรองหาแท่งที่เวลา UTC ตรงกับ 08:00 (15:00-16:00 ไทย)
+        // หากรองเฉพาะแท่งที่เวลา UTC = 08:00 (ตรงกับ 15:00-16:00 ไทย)
         let plattsWindowCloses = [];
         let plattsWindowDates = [];
 
         for (let i = 0; i < timestamps.length; i++) {
-            const date = new Date(timestamps[i] * 1000); // แปลง UNIX เป็น Date object
+            const date = new Date(timestamps[i] * 1000); 
             if (date.getUTCHours() === 8 && closes[i] !== null) {
                 plattsWindowCloses.push(closes[i]);
                 plattsWindowDates.push(date);
             }
         }
 
-        // ต้องมีข้อมูลอย่างน้อย 2 วัน (เมื่อวาน กับ วันนี้)
-        if (plattsWindowCloses.length < 2) {
-            throw new Error("หาแท่งเทียนช่วงเวลา 15:30 ไม่พบ (ตลาดอเมริกาอาจหยุดทำการ)");
+        if (plattsWindowCloses.length < 1) {
+            throw new Error("หาแท่งเทียน 15:30 น. ของเมื่อวานไม่พบ (ตลาดอาจหยุด)");
         }
 
-        // ดึง 2 วันทำการล่าสุด (ระบบจะข้ามวันหยุดเสาร์-อาทิตย์ หรือวันหยุดนักขัตฤกษ์ให้อัตโนมัติ)
-        const prevPrice = plattsWindowCloses[plattsWindowCloses.length - 2];
-        const currPrice = plattsWindowCloses[plattsWindowCloses.length - 1];
+        const livePrice = closes[closes.length - 1];
+        const liveDate = new Date(timestamps[timestamps.length - 1] * 1000);
+        const lastPlattsDate = plattsWindowDates[plattsWindowDates.length - 1];
         
-        const datePrev = plattsWindowDates[plattsWindowDates.length - 2].toLocaleDateString('th-TH');
-        const dateCurr = plattsWindowDates[plattsWindowDates.length - 1].toLocaleDateString('th-TH');
+        let prevPrice, currPrice, displayTime;
+
+        // เช็คว่ากดหลังจากเวลา 15:30 น. ของวันนี้ไปแล้วหรือยัง?
+        const isAfterPlattsToday = (lastPlattsDate.getDate() === liveDate.getDate() && lastPlattsDate.getMonth() === liveDate.getMonth());
+
+        if (isAfterPlattsToday) {
+            // กรณีเลยเวลา 15:30 ไปแล้ว -> เอา 15:30 วันนี้ ลบ 15:30 เมื่อวาน
+            if (plattsWindowCloses.length < 2) throw new Error("ข้อมูลเมื่อวานไม่พอสำหรับเปรียบเทียบ");
+            currPrice = plattsWindowCloses[plattsWindowCloses.length - 1]; 
+            prevPrice = plattsWindowCloses[plattsWindowCloses.length - 2]; 
+            displayTime = "15:30 น.";
+        } else {
+            // กรณียังไม่ถึง 15:30 ของวันนี้ (เช่น 14:00 น.) -> เอา Live ปัจจุบัน ลบ 15:30 เมื่อวาน
+            currPrice = livePrice;
+            prevPrice = plattsWindowCloses[plattsWindowCloses.length - 1]; 
+            const h = String(liveDate.getHours()).padStart(2, '0');
+            const m = String(liveDate.getMinutes()).padStart(2, '0');
+            displayTime = `${h}:${m} น. (Live)`;
+        }
 
         const diffUsdGallon = currPrice - prevPrice;
-        
-        // สมการ: (ส่วนต่าง USD/Gallon) * 42 แกลลอน * อัตราแลกเปลี่ยน USD/SGD
         const mopsSgdBbl = diffUsdGallon * 42 * STATE.usdSgdRate;
 
-        // ใส่ค่าลงช่อง Input และทริกเกอร์ให้คำนวณใหม่
+        // อัปเดตช่องกรอกตัวเลขและข้อความอธิบาย
         input.value = mopsSgdBbl.toFixed(2);
-        infoDiv.innerText = `ดึงจาก ${ticker} เวลา 15:30 น. (${datePrev} เทียบ ${dateCurr}) | USD/SGD: ${STATE.usdSgdRate.toFixed(3)}`;
+        infoDiv.innerText = `ดึงจาก ${ticker} | เทียบ 15:30 เมื่อวาน กับ วันนี้ ${displayTime} | เรท USD/SGD: ${STATE.usdSgdRate.toFixed(3)}`;
         infoDiv.style.color = "#38A169";
 
-        calculate(); // สั่งคำนวณใหม่
+        calculate(); 
 
       } catch (e) {
         infoDiv.innerText = `ผิดพลาด: ${e.message}`;
