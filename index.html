@@ -369,7 +369,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย ดีเซล (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetDiesel" step="0.0001" value="1.8000" />
+          <input type="number" id="inputTargetDiesel" step="0.0001" value="1.9100" />
         </div>
         <div class="mini-input-box">
           <label>มาร์จิ้น G95 เมื่อวาน (บาท/ลิตร)</label>
@@ -377,7 +377,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย G95 (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetG95" step="0.0001" value="3.0000" />
+          <input type="number" id="inputTargetG95" step="0.0001" value="3.2500" />
         </div>
       </div>
 
@@ -395,13 +395,13 @@
     const STATE = {
       diesel: {
         yesterdayMargin: 2.0000,
-        targetMargin: 1.8000,
+        targetMargin: 1.9100, // ปรับกลับเป็นเกณฑ์ที่ดีที่สุด (1.91)
         factorMops: 0.165,
         factorFx: 1.10
       },
       g95: {
         yesterdayMargin: 3.3500,
-        targetMargin: 3.0000,
+        targetMargin: 3.2500, // ปรับกลับเป็นเกณฑ์ที่ดีที่สุด (3.25)
         factorMops: 0.152,
         factorFx: 0.80
       },
@@ -450,42 +450,43 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // ดึงอัตราแลกเปลี่ยน พร้อมใช้งาน Meta.previousClose เพื่อให้ชัวร์ว่าเทียบกับราคาปิดเมื่อวานเสมอ
     async function syncExchangeRate() {
-      // 1. Yahoo Finance API (ดึง Previous Close ได้ชัวร์สุด)
       try {
-        const yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGDTHB=X?interval=1d&range=1d";
+        const yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGDTHB=X?interval=1d&range=2d";
         const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(yahooUrl);
         const res = await fetch(proxyUrl);
         
         if (res.ok) {
           const data = await res.json();
-          const meta = data?.chart?.result?.[0]?.meta;
+          const quotes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+          const metaPrice = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
           
-          if (meta && meta.regularMarketPrice && meta.previousClose) {
-            STATE.fxRate = meta.regularMarketPrice;
-            STATE.prevFxRate = meta.previousClose;
-            STATE.dFx = meta.regularMarketPrice - meta.previousClose;
+          if (quotes && quotes.length >= 2) {
+            const yesterdayClose = quotes[quotes.length - 2];
+            const currentFx = metaPrice || quotes[quotes.length - 1];
             
-            STATE.syncFx = true;
-            dotFx.classList.remove("offline");
-            calculate();
-            return;
+            if (currentFx > 0 && yesterdayClose > 0) {
+              STATE.fxRate = currentFx;
+              STATE.prevFxRate = yesterdayClose;
+              STATE.dFx = currentFx - yesterdayClose;
+              
+              STATE.syncFx = true;
+              dotFx.classList.remove("offline");
+              calculate();
+              return;
+            }
           }
         }
       } catch (e) {
         console.warn("Yahoo Finance failed, trying fallback...", e);
       }
 
-      // 2. Fallback Open Exchange API
       try {
         const res = await fetch("https://open.er-api.com/v6/latest/SGD");
         if (res.ok) {
           const data = await res.json();
           if (data && data.rates && data.rates.THB) {
             const currentFx = parseFloat(data.rates.THB);
-            
-            // อ่านค่าจากแคช ถ้าไม่มีแคชให้ดึง 26.1346 แทนที่จะใช้ currentFx (เพื่อไม่ให้ลบกันเป็น 0)
             let cachedFx = parseFloat(localStorage.getItem("cached_prev_fx"));
             if (isNaN(cachedFx) || cachedFx <= 0) cachedFx = 26.1346;
 
@@ -502,7 +503,6 @@
         }
       } catch (e) {}
 
-      // ถ้าพังหมด
       STATE.fxRate = 26.1346;
       STATE.dFx = 0.0000;
       STATE.syncFx = false;
@@ -553,9 +553,9 @@
 
     function calculate() {
       STATE.diesel.yesterdayMargin = parseFloat(inputMarginDiesel.value) || 2.0000;
-      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 1.8000;
+      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 1.9100;
       STATE.g95.yesterdayMargin = parseFloat(inputMarginG95.value) || 3.3500;
-      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.0000;
+      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.2500;
 
       if (!STATE.fxRate || STATE.fxRate === 0) {
         STATE.fxRate = 26.1346;
@@ -650,9 +650,9 @@
       }
     });
 
-    // เพิ่มฟีเจอร์ซ่อนให้ผู้ใช้กรอก FX เองได้เพื่อทดสอบย้อนหลัง
+    // ให้ผู้ใช้กรอก FX เองได้ง่ายๆ เพื่อทดสอบเมื่อตลาดปิด
     btnSyncFx.addEventListener("click", () => {
-      const manualDfx = prompt("ป้อนผลต่างค่าเงินบาทย้อนหลัง (เช่น อ่อน 26 สต. ให้พิมพ์ 0.26)\n\n*หากต้องการให้ดึงข้อมูลอัตโนมัติ ให้ปล่อยว่างแล้วกด OK");
+      const manualDfx = prompt("ตลาดปิดทำการ! หากต้องการทดสอบ ให้ป้อนตัวเลขผลต่างค่าเงินบาท (เช่น บาทอ่อน 26 สต. ให้พิมพ์ 0.26 หรือ -0.15 สำหรับบาทแข็ง)\n\n*หากปล่อยว่างแล้วกด OK ระบบจะพยายามดึงข้อมูลออนไลน์");
       if (manualDfx !== null && manualDfx.trim() !== "") {
         STATE.dFx = parseFloat(manualDfx) || 0;
         STATE.syncFx = true;
