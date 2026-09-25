@@ -348,7 +348,7 @@
       </button>
     </div>
 
-    <!-- Platform Title & Real-time Date/Time -->
+    <!-- Platform Header -->
     <div class="platform-header">
       <h1 class="platform-title">แนวโน้มราคาน้ำมัน</h1>
       <div class="platform-datetime" id="liveDateTime">กำลังโหลดวันที่และเวลา...</div>
@@ -396,7 +396,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย ดีเซล (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetDiesel" step="0.0001" value="1.9100" />
+          <input type="number" id="inputTargetDiesel" step="0.0001" value="1.8000" />
         </div>
         <div class="mini-input-box">
           <label>มาร์จิ้น G95 เมื่อวาน (บาท/ลิตร)</label>
@@ -404,7 +404,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย G95 (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetG95" step="0.0001" value="3.2500" />
+          <input type="number" id="inputTargetG95" step="0.0001" value="3.0000" />
         </div>
       </div>
 
@@ -422,13 +422,13 @@
     const STATE = {
       diesel: {
         yesterdayMargin: 2.0000,
-        targetMargin: 1.9100, // ค่าเป้าหมายมาตรฐานที่ผ่านการวิจัย (Baseline 1.91)
+        targetMargin: 1.8000, // ค่าเป้าหมายตั้งต้น: ดีเซล 1.80 บาท
         factorMops: 0.165,    // Sensitivity Factor ดีเซล B7
         factorFx: 1.10        // FX Impact Factor ดีเซล
       },
       g95: {
         yesterdayMargin: 3.3500,
-        targetMargin: 3.2500, // ค่าเป้าหมายมาตรฐานที่ผ่านการวิจัย (Baseline 3.25)
+        targetMargin: 3.0000, // ค่าเป้าหมายตั้งต้น: G95 3.00 บาท
         factorMops: 0.152,    // Sensitivity Factor G95 (หักเอทานอล 10%)
         factorFx: 0.80        // FX Impact Factor G95
       },
@@ -621,9 +621,9 @@
     // Status = (Target - YesterdayMargin) - [ (ΔMOPS * FactorMOPS) + (ΔFX * FactorFX) ]
     function calculate() {
       STATE.diesel.yesterdayMargin = parseFloat(inputMarginDiesel.value) || 2.0000;
-      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 1.9100;
+      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 1.8000;
       STATE.g95.yesterdayMargin = parseFloat(inputMarginG95.value) || 3.3500;
-      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.2500;
+      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.0000;
 
       if (!STATE.fxRate || STATE.fxRate === 0) {
         STATE.fxRate = 26.1346;
