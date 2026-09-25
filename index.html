@@ -396,7 +396,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย ดีเซล (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetDiesel" step="0.0001" value="2.0000" />
+          <input type="number" id="inputTargetDiesel" step="0.0001" value="2.2500" />
         </div>
         <div class="mini-input-box">
           <label>ค่าการตลาดปัจจุบัน G95 (บาท/ลิตร)</label>
@@ -404,7 +404,7 @@
         </div>
         <div class="mini-input-box">
           <label>เกณฑ์เป้าหมาย G95 (บาท/ลิตร)</label>
-          <input type="number" id="inputTargetG95" step="0.0001" value="3.3500" />
+          <input type="number" id="inputTargetG95" step="0.0001" value="3.7000" />
         </div>
       </div>
 
@@ -418,20 +418,22 @@
   </div>
 
   <script>
-    // Configuration & Initial State (ใช้ค่าสัมประสิทธิ์สัดส่วนเนื้อน้ำมันจริงตามสูตรที่ถอดรหัสได้)
+    // Configuration & Initial State (ตามค่าคงที่และสัมประสิทธิ์ที่ถอดรหัสได้)
     const STATE = {
       diesel: {
         currentMargin: 0.0000,
-        targetMargin: 2.0000, // เกณฑ์มาตรฐานดีเซล สนพ.
-        beta: 0.935,          // สัดส่วนเนื้อน้ำมันดีเซลฐาน (ผสม B100 6.5% - 7%)
+        targetMargin: 2.2500, // ค่าเกณฑ์เป้าหมายดีเซลที่สะท้อนภาษีท้องถิ่นและกันชนหน้าลาน
+        beta: 0.935,          // สัมประสิทธิ์สัดส่วนเนื้อดีเซลฐาน 93.5%
       },
       g95: {
         currentMargin: 0.0000,
-        targetMargin: 3.3500, // เกณฑ์มาตรฐาน G95
-        beta: 0.865,          // สัดส่วนเนื้อ Base Gasoline 91 ผสมเอทานอล 10%
+        targetMargin: 3.7000, // ค่าเกณฑ์เป้าหมาย G95 ที่สะท้อน Retail Cushion Buffer
+        beta: 0.865,          // สัมประสิทธิ์สัดส่วนเนื้อ G-Base 91 ผสมเอทานอล 10%
       },
       fxRate: 0.0000,
       vatFactor: 1.07 / 158.9873,
+      litersPerBarrel: 158.9873,
+      vatMultiplier: 1.07,
       syncEppo: false,
       syncFx: false,
       showAdvance: false
@@ -559,23 +561,22 @@
       calculate();
     }
 
-    // ฟังก์ชันคำนวณราคาด้วยสมการหลัก
+    // ฟังก์ชันคำนวณราคาด้วยสมการหลักทั้ง 3 สมการ
     function calculate() {
       STATE.diesel.currentMargin = parseFloat(inputMarginDiesel.value) || 0;
-      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.0000;
+      STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 2.2500;
       STATE.g95.currentMargin = parseFloat(inputMarginG95.value) || 0;
-      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.3500;
+      STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.7000;
 
       const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
       const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
 
-      // Base Factor = (FX * 1.07) / 158.9873 (หากยังโหลด FX ไม่ได้จะใช้ค่าเฉลี่ย 26.1346)
       const currentFx = STATE.fxRate > 0 ? STATE.fxRate : 26.1346;
-      const baseFactor = currentFx * STATE.vatFactor;
 
-      // ปัจจัยคูณสุทธิแยกชนิดน้ำมัน (Factor = BaseFactor * Beta)
-      const factorDiesel = baseFactor * STATE.diesel.beta; // ~ 0.165
-      const factorG95 = baseFactor * STATE.g95.beta;       // ~ 0.152
+      // สมการที่ 1: Factor = ( (FX * (1 + VAT)) / LitersPerBarrel ) * beta
+      const baseConversion = (currentFx * STATE.vatMultiplier) / STATE.litersPerBarrel;
+      const factorDiesel = baseConversion * STATE.diesel.beta; // ดีเซล: baseConversion * 0.935
+      const factorG95 = baseConversion * STATE.g95.beta;       // G95: baseConversion * 0.865
 
       // หากยังไม่มีข้อมูลใดๆ ให้แสดง 0.00
       if (STATE.diesel.currentMargin === 0 && STATE.g95.currentMargin === 0 && dMopsDiesel === 0 && dMopsG95 === 0) {
@@ -585,15 +586,15 @@
         return;
       }
 
-      // ต้นทุน MOPS ปรับด้วยค่า Beta
+      // สมการที่ 2: ΔCost_MOPS = ΔMOPS * Factor
       const costDiesel = dMopsDiesel * factorDiesel;
       const costG95 = dMopsG95 * factorG95;
 
-      // ส่วนชดเชยมาร์จิ้น (Target - Current)
+      // ส่วนชดเชยมาร์จิ้น: ΔMargin Gap = Target Margin - Current Margin
       const marginGapDiesel = (STATE.diesel.currentMargin > 0) ? (STATE.diesel.targetMargin - STATE.diesel.currentMargin) : 0;
       const marginGapG95 = (STATE.g95.currentMargin > 0) ? (STATE.g95.targetMargin - STATE.g95.currentMargin) : 0;
 
-      // ผลลัพธ์คาดการณ์ทิศทางราคาขายปลีก: Cost + Margin Gap
+      // สมการที่ 3: สมการผลรวม ΔRetail Price = ΔCost_MOPS + ΔMargin Gap
       const priceAdjDiesel = costDiesel + marginGapDiesel;
       const priceAdjG95 = costG95 + marginGapG95;
 
@@ -623,17 +624,19 @@
       const currentFx = STATE.fxRate > 0 ? STATE.fxRate : 26.1346;
       advDieselCalc.innerHTML = `
         <strong>ดีเซล B7 (β = ${STATE.diesel.beta}):</strong><br/>
-        • ต้นทุน MOPS: ${dMopsD.toFixed(2)} × ${factorD.toFixed(4)} = <strong>${costD >= 0 ? '+' : ''}${costD.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ส่วนชดเชยมาร์จิ้น: ${STATE.diesel.targetMargin.toFixed(4)} - ${STATE.diesel.currentMargin.toFixed(4)} = <strong>${gapD >= 0 ? '+' : ''}${gapD.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ผลลัพธ์สุทธิ: (${costD.toFixed(4)}) + (${gapD.toFixed(4)}) = <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • Factor: ((${currentFx.toFixed(4)} × 1.07) / 158.9873) × ${STATE.diesel.beta} = <strong>${factorD.toFixed(4)}</strong><br/>
+        • ΔCost_MOPS: ${dMopsD.toFixed(2)} × ${factorD.toFixed(4)} = <strong>${costD >= 0 ? '+' : ''}${costD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ΔMargin Gap: ${STATE.diesel.targetMargin.toFixed(4)} - ${STATE.diesel.currentMargin.toFixed(4)} = <strong>${gapD >= 0 ? '+' : ''}${gapD.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ผลรวม ΔRetail Price: (${costD.toFixed(4)}) + (${gapD.toFixed(4)}) = <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ทิศทางราคา: <strong>${adjD >= 0 ? '+' : ''}${adjD.toFixed(2)} บาท/ลิตร</strong>
       `;
 
       advG95Calc.innerHTML = `
         <strong>แก๊สโซฮอล์ 95 (β = ${STATE.g95.beta}):</strong><br/>
-        • ต้นทุน MOPS: ${dMopsG.toFixed(2)} × ${factorG.toFixed(4)} = <strong>${costG >= 0 ? '+' : ''}${costG.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ส่วนชดเชยมาร์จิ้น: ${STATE.g95.targetMargin.toFixed(4)} - ${STATE.g95.currentMargin.toFixed(4)} = <strong>${gapG >= 0 ? '+' : ''}${gapG.toFixed(4)}</strong> บาท/ลิตร<br/>
-        • ผลลัพธ์สุทธิ: (${costG.toFixed(4)}) + (${gapG.toFixed(4)}) = <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • Factor: ((${currentFx.toFixed(4)} × 1.07) / 158.9873) × ${STATE.g95.beta} = <strong>${factorG.toFixed(4)}</strong><br/>
+        • ΔCost_MOPS: ${dMopsG.toFixed(2)} × ${factorG.toFixed(4)} = <strong>${costG >= 0 ? '+' : ''}${costG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ΔMargin Gap: ${STATE.g95.targetMargin.toFixed(4)} - ${STATE.g95.currentMargin.toFixed(4)} = <strong>${gapG >= 0 ? '+' : ''}${gapG.toFixed(4)}</strong> บาท/ลิตร<br/>
+        • ผลรวม ΔRetail Price: (${costG.toFixed(4)}) + (${gapG.toFixed(4)}) = <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(4)}</strong> บาท/ลิตร<br/>
         • ทิศทางราคา: <strong>${adjG >= 0 ? '+' : ''}${adjG.toFixed(2)} บาท/ลิตร</strong>
       `;
       advFxVal.innerText = currentFx.toFixed(4);
