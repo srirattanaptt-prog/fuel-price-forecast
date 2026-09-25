@@ -19,6 +19,7 @@
       --accent: #EEE8D5;
       --dot-green: #38A169;
       --dot-red: #E53E3E;
+      --proxy-btn: #4A5568;
     }
 
     * {
@@ -156,12 +157,16 @@
       display: flex;
       flex-direction: column;
       gap: 4px;
+      position: relative;
     }
 
     .input-box label {
       font-size: 12px;
       color: var(--text-muted);
       font-weight: 400;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
     .input-box input {
@@ -171,6 +176,27 @@
       font-size: 17px;
       font-weight: 600;
       color: var(--text-main);
+      width: 100%;
+    }
+
+    /* ปุ่มดึงค่า Proxy (ทดแทน MOPS) */
+    .btn-proxy {
+      background: var(--proxy-btn);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 2px 6px;
+      font-size: 10px;
+      cursor: pointer;
+      opacity: 0.8;
+      transition: opacity 0.2s;
+    }
+    .btn-proxy:hover {
+      opacity: 1;
+    }
+    .btn-proxy:disabled {
+      background: #CBD5E0;
+      cursor: wait;
     }
 
     .cards-grid {
@@ -301,6 +327,13 @@
       border-bottom: none;
     }
 
+    .proxy-info {
+      font-size: 10px;
+      color: #7E8585;
+      margin-top: 4px;
+      font-style: italic;
+    }
+
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(-4px); }
       to { opacity: 1; transform: translateY(0); }
@@ -332,14 +365,23 @@
       <div class="platform-datetime" id="liveDateTime">กำลังโหลดวันที่และเวลา...</div>
     </div>
 
+    <!-- Inputs Row (เพิ่มปุ่มดึง Proxy) -->
     <div class="input-grid">
       <div class="input-box">
-        <label for="mopsDiesel">ΔMOPS ดีเซล (SGD/BBL)</label>
+        <label for="mopsDiesel">
+          <span>ΔMOPS ดีเซล (SGD/BBL)</span>
+          <button class="btn-proxy" id="btnProxyDiesel" title="ดึงค่า Heating Oil (เวลา 15:30) มาแทนที่">ดึงค่าแทน</button>
+        </label>
         <input type="number" id="mopsDiesel" step="0.01" value="0.00" />
+        <div class="proxy-info" id="infoProxyDiesel"></div>
       </div>
       <div class="input-box">
-        <label for="mopsG95">ΔMOPS เบนซิน G95 (SGD/BBL)</label>
+        <label for="mopsG95">
+          <span>ΔMOPS เบนซิน G95 (SGD/BBL)</span>
+          <button class="btn-proxy" id="btnProxyG95" title="ดึงค่า RBOB Gasoline (เวลา 15:30) มาแทนที่">ดึงค่าแทน</button>
+        </label>
         <input type="number" id="mopsG95" step="0.01" value="0.00" />
+        <div class="proxy-info" id="infoProxyG95"></div>
       </div>
     </div>
 
@@ -395,19 +437,20 @@
     const STATE = {
       diesel: {
         yesterdayMargin: 2.0000,
-        targetMargin: 1.9100, // ปรับกลับเป็นเกณฑ์ที่ดีที่สุด (1.91)
+        targetMargin: 1.9100,
         factorMops: 0.165,
         factorFx: 1.10
       },
       g95: {
         yesterdayMargin: 3.3500,
-        targetMargin: 3.2500, // ปรับกลับเป็นเกณฑ์ที่ดีที่สุด (3.25)
+        targetMargin: 3.2500,
         factorMops: 0.152,
         factorFx: 0.80
       },
       fxRate: 26.1346,
       prevFxRate: 26.1346,
       dFx: 0.0000,
+      usdSgdRate: 1.3200, // สำหรับแปลงหน่วย Futures
       syncEppo: false,
       syncFx: false,
       showAdvance: false
@@ -433,6 +476,11 @@
     const inputMarginG95 = document.getElementById("inputMarginG95");
     const inputTargetG95 = document.getElementById("inputTargetG95");
 
+    const btnProxyDiesel = document.getElementById("btnProxyDiesel");
+    const btnProxyG95 = document.getElementById("btnProxyG95");
+    const infoProxyDiesel = document.getElementById("infoProxyDiesel");
+    const infoProxyG95 = document.getElementById("infoProxyG95");
+
     function updateClock() {
       const now = new Date();
       const thaiMonths = [
@@ -450,6 +498,91 @@
     updateClock();
     setInterval(updateClock, 1000);
 
+    // ระบบ Proxy ดึงข้อมูล Futures ทดแทน MOPS (แก้ปัญหา วันหยุด/Timezone)
+    async function fetchProxyMops(fuelType) {
+      const btn = fuelType === 'diesel' ? btnProxyDiesel : btnProxyG95;
+      const infoDiv = fuelType === 'diesel' ? infoProxyDiesel : infoProxyG95;
+      const ticker = fuelType === 'diesel' ? 'HO=F' : 'RB=F'; // Heating Oil หรือ RBOB
+      const input = fuelType === 'diesel' ? inputMopsDiesel : inputMopsG95;
+      
+      btn.disabled = true;
+      btn.innerText = "กำลังดึง...";
+      infoDiv.innerText = "กำลังเชื่อมต่อตลาด Futures...";
+
+      try {
+        // 1. ดึงอัตราแลกเปลี่ยน USD/SGD สดๆ ก่อน
+        const usdSgdUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGD=X?interval=1d&range=1d";
+        const proxyUsdSgdUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(usdSgdUrl);
+        const resUsd = await fetch(proxyUsdSgdUrl);
+        if (resUsd.ok) {
+            const dataUsd = await resUsd.json();
+            const rate = dataUsd?.chart?.result?.[0]?.meta?.regularMarketPrice;
+            if (rate > 0) STATE.usdSgdRate = rate;
+        }
+
+        // 2. ดึงกราฟแท่ง 1 ชั่วโมง ย้อนหลัง 5 วัน เพื่อหาแท่ง 15:30 (เวลาไทย) ของ 2 วันล่าสุดที่ตลาดเปิด
+        // 15:30 ไทย = 08:30 UTC. แท่งกราฟรายชั่วโมงของ Yahoo มักจะประทับเวลา 08:00 UTC
+        const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?interval=1h&range=5d`;
+        const proxyChartUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(chartUrl);
+        
+        const resChart = await fetch(proxyChartUrl);
+        if (!resChart.ok) throw new Error("ไม่สามารถเชื่อมต่อ API ตลาด Futures ได้");
+        
+        const data = await resChart.json();
+        const timestamps = data?.chart?.result?.[0]?.timestamp;
+        const closes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
+
+        if (!timestamps || !closes) throw new Error("ไม่มีข้อมูลการซื้อขายในช่วง 5 วันที่ผ่านมา");
+
+        // กรองหาแท่งที่เวลา UTC ตรงกับ 08:00 (15:00-16:00 ไทย)
+        let plattsWindowCloses = [];
+        let plattsWindowDates = [];
+
+        for (let i = 0; i < timestamps.length; i++) {
+            const date = new Date(timestamps[i] * 1000); // แปลง UNIX เป็น Date object
+            if (date.getUTCHours() === 8 && closes[i] !== null) {
+                plattsWindowCloses.push(closes[i]);
+                plattsWindowDates.push(date);
+            }
+        }
+
+        // ต้องมีข้อมูลอย่างน้อย 2 วัน (เมื่อวาน กับ วันนี้)
+        if (plattsWindowCloses.length < 2) {
+            throw new Error("หาแท่งเทียนช่วงเวลา 15:30 ไม่พบ (ตลาดอเมริกาอาจหยุดทำการ)");
+        }
+
+        // ดึง 2 วันทำการล่าสุด (ระบบจะข้ามวันหยุดเสาร์-อาทิตย์ หรือวันหยุดนักขัตฤกษ์ให้อัตโนมัติ)
+        const prevPrice = plattsWindowCloses[plattsWindowCloses.length - 2];
+        const currPrice = plattsWindowCloses[plattsWindowCloses.length - 1];
+        
+        const datePrev = plattsWindowDates[plattsWindowDates.length - 2].toLocaleDateString('th-TH');
+        const dateCurr = plattsWindowDates[plattsWindowDates.length - 1].toLocaleDateString('th-TH');
+
+        const diffUsdGallon = currPrice - prevPrice;
+        
+        // สมการ: (ส่วนต่าง USD/Gallon) * 42 แกลลอน * อัตราแลกเปลี่ยน USD/SGD
+        const mopsSgdBbl = diffUsdGallon * 42 * STATE.usdSgdRate;
+
+        // ใส่ค่าลงช่อง Input และทริกเกอร์ให้คำนวณใหม่
+        input.value = mopsSgdBbl.toFixed(2);
+        infoDiv.innerText = `ดึงจาก ${ticker} เวลา 15:30 น. (${datePrev} เทียบ ${dateCurr}) | USD/SGD: ${STATE.usdSgdRate.toFixed(3)}`;
+        infoDiv.style.color = "#38A169";
+
+        calculate(); // สั่งคำนวณใหม่
+
+      } catch (e) {
+        infoDiv.innerText = `ผิดพลาด: ${e.message}`;
+        infoDiv.style.color = "#E53E3E";
+      } finally {
+        btn.disabled = false;
+        btn.innerText = "ดึงค่าแทน";
+      }
+    }
+
+    btnProxyDiesel.addEventListener("click", () => fetchProxyMops('diesel'));
+    btnProxyG95.addEventListener("click", () => fetchProxyMops('g95'));
+
+    // ดึงค่าอัตราแลกเปลี่ยนหลัก SGD/THB
     async function syncExchangeRate() {
       try {
         const yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGDTHB=X?interval=1d&range=2d";
@@ -650,9 +783,8 @@
       }
     });
 
-    // ให้ผู้ใช้กรอก FX เองได้ง่ายๆ เพื่อทดสอบเมื่อตลาดปิด
     btnSyncFx.addEventListener("click", () => {
-      const manualDfx = prompt("ตลาดปิดทำการ! หากต้องการทดสอบ ให้ป้อนตัวเลขผลต่างค่าเงินบาท (เช่น บาทอ่อน 26 สต. ให้พิมพ์ 0.26 หรือ -0.15 สำหรับบาทแข็ง)\n\n*หากปล่อยว่างแล้วกด OK ระบบจะพยายามดึงข้อมูลออนไลน์");
+      const manualDfx = prompt("ป้อนผลต่างค่าเงินบาทย้อนหลัง (เช่น บาทอ่อน 26 สต. ให้พิมพ์ 0.26 หรือ -0.15 สำหรับบาทแข็ง)\n\n*หากต้องการให้ดึงข้อมูลอัตโนมัติ ให้ปล่อยว่างแล้วกด OK");
       if (manualDfx !== null && manualDfx.trim() !== "") {
         STATE.dFx = parseFloat(manualDfx) || 0;
         STATE.syncFx = true;
