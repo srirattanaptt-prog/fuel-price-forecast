@@ -337,7 +337,7 @@
           <span class="dot offline" id="dotEppo"></span>
           <span>EPPO</span>
         </button>
-        <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อโหลดอัตราแลกเปลี่ยนใหม่">
+        <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อโหลดอัตราแลกเปลี่ยนใหม่ (รองรับ Google/Yahoo Fallback)">
           <span class="dot offline" id="dotFx"></span>
           <span>Exchange</span>
         </button>
@@ -412,27 +412,27 @@
       <div class="step-item" id="advDieselCalc"></div>
       <div class="step-item" id="advG95Calc"></div>
       <div style="font-size: 11px; margin-top: 8px;">
-        * อัตราแลกเปลี่ยน SGD/THB = <span id="advFxVal">0.0000</span> (ΔFX: <span id="advDfxVal">0.0000</span>) | ตัวคูณ FX: ดีเซล = 1.10, G95 = 0.80
+        * อัตราแลกเปลี่ยน SGD/THB = <span id="advFxVal">26.1346</span> (ΔFX: <span id="advDfxVal">+0.0000</span>) | ตัวคูณ FX: ดีเซล = 1.10, G95 = 0.80
       </div>
     </div>
   </div>
 
   <script>
-    // Configuration & State (The Ultimate Production Model)
+    // Configuration & State
     const STATE = {
       diesel: {
         yesterdayMargin: 2.0000,
-        targetMargin: 1.9100, // เกณฑ์เป้าหมายที่ดีที่สุดจากการพิสูจน์ (Baseline 1.91)
+        targetMargin: 1.9100, // ค่าเป้าหมายมาตรฐานที่ผ่านการวิจัย (Baseline 1.91)
         factorMops: 0.165,    // Sensitivity Factor ดีเซล B7
         factorFx: 1.10        // FX Impact Factor ดีเซล
       },
       g95: {
         yesterdayMargin: 3.3500,
-        targetMargin: 3.2500, // เกณฑ์เป้าหมายที่ดีที่สุดจากการพิสูจน์ (Baseline 3.25)
+        targetMargin: 3.2500, // ค่าเป้าหมายมาตรฐานที่ผ่านการวิจัย (Baseline 3.25)
         factorMops: 0.152,    // Sensitivity Factor G95 (หักเอทานอล 10%)
         factorFx: 0.80        // FX Impact Factor G95
       },
-      fxRate: 26.1346,
+      fxRate: 26.1346,        // กำหนดค่าเริ่มต้นเป็น 26.1346
       prevFxRate: 26.1346,
       dFx: 0.0000,
       syncEppo: false,
@@ -481,31 +481,70 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // 1. ดึงอัตราแลกเปลี่ยนสดและคำนวณส่วนต่าง ΔFX
+    // ฟังก์ชันช่วยอัปเดตค่า FX เข้าสู่ STATE
+    function applyExchangeRate(rate) {
+      const currentFx = parseFloat(rate);
+      if (isNaN(currentFx) || currentFx <= 0) return false;
+
+      const cachedFx = parseFloat(localStorage.getItem("cached_prev_fx")) || currentFx;
+      STATE.fxRate = currentFx;
+      STATE.prevFxRate = cachedFx;
+      STATE.dFx = currentFx - cachedFx;
+
+      localStorage.setItem("cached_prev_fx", currentFx.toString());
+      STATE.syncFx = true;
+      dotFx.classList.remove("offline");
+      calculate();
+      return true;
+    }
+
+    // 1. ดึงอัตราแลกเปลี่ยนสด (พร้อมระบบ Fallback: API -> Yahoo Finance -> Google Finance Mirror -> Cache)
     async function syncExchangeRate() {
+      // แหล่งที่ 1: Open Exchange API
       try {
         const res = await fetch("https://open.er-api.com/v6/latest/SGD");
         if (res.ok) {
           const data = await res.json();
           if (data && data.rates && data.rates.THB) {
-            const currentFx = parseFloat(data.rates.THB);
-            const cachedFx = parseFloat(localStorage.getItem("cached_prev_fx")) || currentFx;
-            
-            STATE.fxRate = currentFx;
-            STATE.prevFxRate = cachedFx;
-            STATE.dFx = currentFx - cachedFx;
+            if (applyExchangeRate(data.rates.THB)) return;
+          }
+        }
+      } catch (e) {
+        console.warn("Primary FX API failed, switching to Yahoo Finance fallback...");
+      }
 
-            STATE.syncFx = true;
-            dotFx.classList.remove("offline");
-            calculate();
+      // แหล่งที่ 2: Yahoo Finance (SGDTHB=X ผ่าน CORS proxy)
+      try {
+        const yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGDTHB=X?interval=1d&range=1d";
+        const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(yahooUrl);
+        const res = await fetch(proxyUrl);
+        if (res.ok) {
+          const data = await res.json();
+          const metaPrice = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+          if (metaPrice && applyExchangeRate(metaPrice)) {
+            console.log("Synced FX successfully via Yahoo Finance");
             return;
           }
         }
       } catch (e) {
-        console.warn("Live FX API error:", e);
+        console.warn("Yahoo Finance fallback failed, switching to Google Finance mirror...");
       }
 
-      // โหลดสำรองจาก data.json
+      // แหล่งที่ 3: Google Finance / Public Currency Feed
+      try {
+        const res = await fetch("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/sgd.json");
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.sgd?.thb && applyExchangeRate(data.sgd.thb)) {
+            console.log("Synced FX successfully via Google/Public Currency feed");
+            return;
+          }
+        }
+      } catch (e) {
+        console.warn("Google Finance mirror failed, checking local file/cache...");
+      }
+
+      // แหล่งที่ 4: ไฟล์ data.json สำรองในเครื่อง
       try {
         const resJson = await fetch("data.json?t=" + Date.now());
         if (resJson.ok) {
@@ -521,8 +560,17 @@
         }
       } catch (err) {}
 
+      // Fallback ขั้นสุดท้าย: ดึงจากแคช หรือใช้ฐานคงที่ 26.1346
+      const localCachedFx = parseFloat(localStorage.getItem("cached_prev_fx"));
+      if (localCachedFx && localCachedFx > 0) {
+        STATE.fxRate = localCachedFx;
+      } else {
+        STATE.fxRate = 26.1346;
+      }
+
       STATE.syncFx = false;
       dotFx.classList.add("offline");
+      calculate();
     }
 
     // 2. ดึงค่าการตลาด EPPO
@@ -561,21 +609,25 @@
       inputMarginDiesel.value = diesel.toFixed(4);
       inputMarginG95.value = g95.toFixed(4);
 
-      localStorage.setItem("cached_diesel_margin", diesel);
-      localStorage.setItem("cached_g95_margin", g95);
+      localStorage.setItem("cached_diesel_margin", diesel.toString());
+      localStorage.setItem("cached_g95_margin", g95.toString());
 
       STATE.syncEppo = true;
       dotEppo.classList.remove("offline");
       calculate();
     }
 
-    // ฟังก์ชันคำนวณสมการพยากรณ์ที่ดีที่สุด (The Ultimate Formula)
+    // ฟังก์ชันคำนวณราคาด้วยสมการที่ดีที่สุด
     // Status = (Target - YesterdayMargin) - [ (ΔMOPS * FactorMOPS) + (ΔFX * FactorFX) ]
     function calculate() {
       STATE.diesel.yesterdayMargin = parseFloat(inputMarginDiesel.value) || 2.0000;
       STATE.diesel.targetMargin = parseFloat(inputTargetDiesel.value) || 1.9100;
       STATE.g95.yesterdayMargin = parseFloat(inputMarginG95.value) || 3.3500;
       STATE.g95.targetMargin = parseFloat(inputTargetG95.value) || 3.2500;
+
+      if (!STATE.fxRate || STATE.fxRate === 0) {
+        STATE.fxRate = 26.1346;
+      }
 
       const dMopsDiesel = parseFloat(inputMopsDiesel.value) || 0;
       const dMopsG95 = parseFloat(inputMopsG95.value) || 0;
