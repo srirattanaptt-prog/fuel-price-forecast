@@ -316,7 +316,7 @@
           <span class="dot offline" id="dotEppo"></span>
           <span>EPPO</span>
         </button>
-        <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อโหลดอัตราแลกเปลี่ยนใหม่">
+        <button class="status-btn" id="btnSyncFx" title="คลิกเพื่อโหลด หรือ กำหนดค่าอัตราแลกเปลี่ยนเอง">
           <span class="dot offline" id="dotFx"></span>
           <span>Exchange</span>
         </button>
@@ -450,48 +450,45 @@
     updateClock();
     setInterval(updateClock, 1000);
 
-    // ดึงค่าปิดตลาดเมื่อวาน vs ปัจจุบัน จาก Yahoo Finance (ย้อนหลัง 2 วัน)
+    // ดึงอัตราแลกเปลี่ยน พร้อมใช้งาน Meta.previousClose เพื่อให้ชัวร์ว่าเทียบกับราคาปิดเมื่อวานเสมอ
     async function syncExchangeRate() {
+      // 1. Yahoo Finance API (ดึง Previous Close ได้ชัวร์สุด)
       try {
-        const yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGDTHB=X?interval=1d&range=2d";
+        const yahooUrl = "https://query1.finance.yahoo.com/v8/finance/chart/SGDTHB=X?interval=1d&range=1d";
         const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(yahooUrl);
         const res = await fetch(proxyUrl);
         
         if (res.ok) {
           const data = await res.json();
-          const quotes = data?.chart?.result?.[0]?.indicators?.quote?.[0]?.close;
-          const metaPrice = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+          const meta = data?.chart?.result?.[0]?.meta;
           
-          if (quotes && quotes.length >= 2) {
-            // เอาค่าปิดของวันก่อนหน้า (Index รองสุดท้าย)
-            const yesterdayClose = quotes[quotes.length - 2];
-            // เอาค่าปัจจุบัน (ถ้าตลาดเปิดใช้ metaPrice ถ้าปิดแล้วใช้ index สุดท้าย)
-            const currentFx = metaPrice || quotes[quotes.length - 1];
+          if (meta && meta.regularMarketPrice && meta.previousClose) {
+            STATE.fxRate = meta.regularMarketPrice;
+            STATE.prevFxRate = meta.previousClose;
+            STATE.dFx = meta.regularMarketPrice - meta.previousClose;
             
-            if (currentFx > 0 && yesterdayClose > 0) {
-              STATE.fxRate = currentFx;
-              STATE.prevFxRate = yesterdayClose;
-              STATE.dFx = currentFx - yesterdayClose;
-              
-              STATE.syncFx = true;
-              dotFx.classList.remove("offline");
-              calculate();
-              return;
-            }
+            STATE.syncFx = true;
+            dotFx.classList.remove("offline");
+            calculate();
+            return;
           }
         }
       } catch (e) {
         console.warn("Yahoo Finance failed, trying fallback...", e);
       }
 
-      // Fallback 1: Open Exchange (ได้แค่ค่าปัจจุบัน เอาไปลบกับ Cache)
+      // 2. Fallback Open Exchange API
       try {
         const res = await fetch("https://open.er-api.com/v6/latest/SGD");
         if (res.ok) {
           const data = await res.json();
           if (data && data.rates && data.rates.THB) {
             const currentFx = parseFloat(data.rates.THB);
-            const cachedFx = parseFloat(localStorage.getItem("cached_prev_fx")) || currentFx;
+            
+            // อ่านค่าจากแคช ถ้าไม่มีแคชให้ดึง 26.1346 แทนที่จะใช้ currentFx (เพื่อไม่ให้ลบกันเป็น 0)
+            let cachedFx = parseFloat(localStorage.getItem("cached_prev_fx"));
+            if (isNaN(cachedFx) || cachedFx <= 0) cachedFx = 26.1346;
+
             STATE.fxRate = currentFx;
             STATE.prevFxRate = cachedFx;
             STATE.dFx = currentFx - cachedFx;
@@ -505,7 +502,7 @@
         }
       } catch (e) {}
 
-      // Fallback 2: data.json หรือ 26.1346
+      // ถ้าพังหมด
       STATE.fxRate = 26.1346;
       STATE.dFx = 0.0000;
       STATE.syncFx = false;
@@ -653,8 +650,17 @@
       }
     });
 
+    // เพิ่มฟีเจอร์ซ่อนให้ผู้ใช้กรอก FX เองได้เพื่อทดสอบย้อนหลัง
     btnSyncFx.addEventListener("click", () => {
-      syncExchangeRate();
+      const manualDfx = prompt("ป้อนผลต่างค่าเงินบาทย้อนหลัง (เช่น อ่อน 26 สต. ให้พิมพ์ 0.26)\n\n*หากต้องการให้ดึงข้อมูลอัตโนมัติ ให้ปล่อยว่างแล้วกด OK");
+      if (manualDfx !== null && manualDfx.trim() !== "") {
+        STATE.dFx = parseFloat(manualDfx) || 0;
+        STATE.syncFx = true;
+        dotFx.classList.remove("offline");
+        calculate();
+      } else {
+        syncExchangeRate();
+      }
     });
 
     calculate();
